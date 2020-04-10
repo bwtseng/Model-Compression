@@ -1,0 +1,57 @@
+pruners:
+  fc_pruner:
+    class: AutomatedGradualPruner
+    initial_sparsity : 0.05
+    final_sparsity: 0.80
+    weights: [
+        module.classifier.0.weight,
+        module.classifier.3.weight,
+        module.classifier.6.weight,
+    ]
+
+  conv_pruner:
+    class: AutomatedGradualPruner
+    initial_sparsity : 0.05
+    final_sparsity: 0.85
+    weights: [
+    #module.conv1.weight,
+    module.features.0.weight,
+    module.features.3.weight,
+    module.features.7.weight,
+    module.features.10.weight,
+    module.features.14.weight,
+    module.features.17.weight,
+    module.features.20.weight,
+    module.features.24.weight,
+    module.features.27.weight,
+    module.features.30.weight,
+    module.features.34.weight,
+    module.features.37.weight,
+    module.features.40.weight
+    ]
+    
+lr_schedulers:
+   pruning_lr:
+     class: ExponentialLR
+     gamma: 0.95
+
+
+policies:
+
+  - pruner:
+      instance_name : conv_pruner
+    starting_epoch: 0
+    ending_epoch: 35
+    frequency: 1
+
+  - pruner:
+      instance_name : fc_pruner
+    starting_epoch: 1
+    ending_epoch: 35
+    frequency: 1
+
+  - lr_scheduler:
+      instance_name: pruning_lr
+    starting_epoch: 40
+    ending_epoch: 100
+    frequency: 1
