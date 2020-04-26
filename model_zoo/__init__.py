@@ -28,7 +28,14 @@ from . import Cifar10 as cifar10_models
 from .Cifar10 import *
 cifar10_function_dict = {
     'resnet': cifar10_models.create_resnet_cifar10,
-    'vgg': cifar10_models.create_vgg_cifar,
+    'vgg': cifar10_models.create_vgg_cifar10,
+    'densenet': cifar10_models.create_densenet_cifar10,
+    'inception_v3':cifar10_models.create_inception_v3_cifar10,
+    'resnet_orig':cifar10_models.create_resnet_orig_cifar10,
+    'resnet': cifar10_models.create_resnet_cifar10,
+    'mobilenet': cifar10_models.create_mobilenet_cifar10,
+    'googlenet': cifar10_models.create_googlenet_cifar10,
+    'shufflenet': create_shufflenet_cifar10,
 }
 del cifar10_models
 
@@ -51,6 +58,6 @@ data_function_dict = {
     'imagenet': imagenet_function_dict,
     'cifar10': cifar10_function_dict,
     'mnist': mnist_function_dict,
-    'vww': vww_function_dict # just support mobilenetv1 and v2
-    
+    'vww': vww_function_dict, # just support mobilenetv1 and v2
+    'fashion_mnist': mnist_function_dict,
 } 

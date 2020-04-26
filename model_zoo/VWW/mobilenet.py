@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 from torch.hub import load_state_dict_from_url
 from distiller.modules import EltwiseAdd
@@ -282,11 +283,9 @@ def mobilenet_v2(pretrained=False, progress=True, **kwargs):
 
 def mobilenet_v1(pretrained, progress=True, width_mult=1.0, device=None, **kwargs):
     model = MobileNetV1()
-    print(model)
     if pretrained:
-        state_dict = load_state_dict_from_url(model_urls['mobilenet_v1'],
-                                              progress=progress)
-        print(state_dict)
+        checkpoint = torch.load('/home/bwtseng/Downloads/mobilenet_sgd_rmsprop_69.526.pth')
+        """
         if device == 'cpu':
             # Remove the module appeared in the name of whole structure.
             from collections import OrderedDict
@@ -298,30 +297,47 @@ def mobilenet_v1(pretrained, progress=True, width_mult=1.0, device=None, **kwarg
             model.load_state_dict(new_state_dict)
 
         else:
+            state_dict = checkpoint['state_dict']
             model.load_state_dict(state_dict)
+        """
+        from collections import OrderedDict
+        new_state_dict = OrderedDict()
+        print("Remove module string in loaded model !!!")
+        for k, v in checkpoint['state_dict'].items():
+            name = k[7:] # remove `module.`
+            new_state_dict[name] = v
+        model.load_state_dict(new_state_dict)      
 
     return model
 
 def create_mobilenet(arch, pretrained, width_mult=1.0, device=None):
-    if arch == 'mobilenetv1':
+    if arch == 'mobilenet_v1':
         model = mobilenet_v1(pretrained=pretrained, channel_multiplier=width_mult, device=device)
+        """
         if pretrained:
             num_ftrs = model.module.fc.in_features
             model.module.fc = nn.Linear(num_ftrs, 2)
         else:
             num_ftrs = model.fc.in_features
             model.fc = nn.Linear(num_ftrs, 2)
+        """
+        num_ftrs = model.fc.in_features
+        model.fc = nn.Linear(num_ftrs, 2)       
         # This if condition may change in the future, since it is really a naive case.
 
-    elif arch =='mobilenetv2':
+    elif arch =='mobilenet_v2':
         model = mobilenet_v2(pretrained=pretrained, width_mult=width_mult)   
         print(model)     
+        """
         if pretrained: 
             num_ftrs = model.module.classifier[-1].in_features
             model.module.classifier[-1] = nn.Linear(num_ftrs, 2)
         else:
             num_ftrs = model.classifier[-1].in_features
             model.classifier[-1] = nn.Linear(num_ftrs, 2)
+        """
+        num_ftrs = model.classifier[-1].in_features
+        model.classifier[-1] = nn.Linear(num_ftrs, 2)
     else:
         raise ValueError('Not support this kind of mobilenet model !!!')
     return model

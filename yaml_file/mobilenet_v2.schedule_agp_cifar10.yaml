@@ -1,0 +1,105 @@
+pruners:
+  fc_pruner:
+    class: AutomatedGradualPruner
+    initial_sparsity : 0.05
+    final_sparsity: 0.6
+    weights: [
+        module.classifier.1.weight,
+    ]
+
+  conv_pruner_1:
+    class: AutomatedGradualPruner
+    initial_sparsity : 0.05
+    final_sparsity: 0.6
+    weights: [
+        module.features.0.0.weight,
+        module.features.1.conv.0.0.weight,
+        module.features.1.conv.1.weight,
+        module.features.2.conv.0.0.weight,
+        module.features.2.conv.1.0.weight,
+        module.features.2.conv.2.weight,
+        module.features.3.conv.0.0.weight,
+        module.features.3.conv.1.0.weight,
+        module.features.3.conv.2.weight,
+        module.features.4.conv.0.0.weight,
+        module.features.4.conv.1.0.weight,
+        module.features.4.conv.2.weight,
+        module.features.5.conv.0.0.weight,
+        module.features.5.conv.1.0.weight,
+        module.features.5.conv.2.weight,
+        module.features.6.conv.0.0.weight,
+        module.features.6.conv.1.0.weight,
+        module.features.6.conv.2.weight,
+        module.features.7.conv.0.0.weight,
+        module.features.7.conv.1.0.weight,
+    ]
+
+  conv_pruner_2:
+    class: AutomatedGradualPruner
+    initial_sparsity : 0.05
+    final_sparsity: 0.85
+    weights: [
+        module.features.7.conv.2.weight,
+        module.features.8.conv.0.0.weight,
+        module.features.8.conv.1.0.weight,
+        module.features.8.conv.2.weight,
+        module.features.9.conv.0.0.weight,
+        module.features.9.conv.1.0.weight,
+        module.features.9.conv.2.weight,
+        module.features.10.conv.0.0.weight,
+        module.features.10.conv.1.0.weight,
+        module.features.10.conv.2.weight,
+        module.features.11.conv.0.0.weight,
+        module.features.11.conv.1.0.weight,
+        module.features.11.conv.2.weight,
+        module.features.12.conv.0.0.weight,
+        module.features.12.conv.1.0.weight,
+        module.features.12.conv.2.weight,
+        module.features.13.conv.0.0.weight,
+        module.features.13.conv.1.0.weight,
+        module.features.13.conv.2.weight,
+        module.features.14.conv.0.0.weight,
+        module.features.14.conv.1.0.weight,
+        module.features.14.conv.2.weight,
+        module.features.15.conv.0.0.weight,
+        module.features.15.conv.1.0.weight,
+        module.features.15.conv.2.weight,
+        module.features.16.conv.0.0.weight,
+        module.features.16.conv.1.0.weight,
+        module.features.16.conv.2.weight,
+        module.features.17.conv.0.0.weight,
+        module.features.17.conv.1.0.weight,
+        module.features.17.conv.2.weight,
+        module.features.18.0.weight,
+    ]
+
+lr_schedulers:
+   pruning_lr:
+     class: ExponentialLR
+     gamma: 0.95
+
+policies:
+
+  - pruner:
+      instance_name : conv_pruner_1
+    starting_epoch: 0
+    ending_epoch: 20
+    frequency: 1
+
+  - pruner:
+      instance_name : conv_pruner_2
+    starting_epoch: 0
+    ending_epoch: 20
+    frequency: 1
+
+  - pruner:
+      instance_name : fc_pruner
+    starting_epoch: 1
+    ending_epoch: 20
+    frequency: 1
+
+  - lr_scheduler:
+      instance_name: pruning_lr
+    starting_epoch: 40
+    ending_epoch: 100
+    frequency: 1

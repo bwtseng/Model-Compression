@@ -29,6 +29,8 @@ import distiller.quantization as quantization
 import collector 
 from functools import partial 
 import model_zoo.classifier as cls 
+
+# from scipy.misc import imread, imresize
 # ***************************************
 # use random split to split training set!!
 # ***************************************

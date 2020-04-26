@@ -33,7 +33,7 @@ import utility
 __all__ = ['PruningPolicy', 'RegularizationPolicy', 'QuantizationPolicy', 'LRPolicy', 'ScheduledTrainingPolicy',
            'PolicyLoss', 'LossComponent']
 
-#msglogger = logging.getLogger()
+msglogger = logging.getLogger()
 PolicyLoss = namedtuple('PolicyLoss', ['overall_loss', 'loss_components'])
 LossComponent = namedtuple('LossComponent', ['name', 'value'])
 
@@ -182,8 +182,8 @@ class PruningPolicy(ScheduledTrainingPolicy):
         return param
 
     def on_epoch_begin(self, model, zeros_mask_dict, meta, **kwargs):
-        #msglogger.debug("Pruner {} is about to prune".format(self.pruner.name))
-        print("Pruner {} is about to prune".format(self.pruner.name))
+        msglogger.debug("Pruner {} is about to prune".format(self.pruner.name))
+        #print("Pruner {} is about to prune".format(self.pruner.name))
         self.is_last_epoch = meta['current_epoch'] == (meta['ending_epoch'] - 1)
         if self.levels is not None:
             self.pruner.levels = self.levels
@@ -293,8 +293,8 @@ class RegularizationPolicy(ScheduledTrainingPolicy):
         if (minibatches_per_epoch-1 == minibatch_id) and self.is_last_epoch and self.keep_mask:
             # If this is the last mini_batch in the last epoch, and the scheduler wants to
             # keep the regularization mask, then now is the time ;-)
-            #msglogger.info("RegularizationPolicy is keeping the regularization mask")
-            print("RegularizationPolicy is keeping the regularization mask.")
+            msglogger.info("RegularizationPolicy is keeping the regularization mask")
+            #print("RegularizationPolicy is keeping the regularization mask.")
             keep_mask = True
 
         for param_name, param in model.named_parameters():

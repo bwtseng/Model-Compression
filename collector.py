@@ -837,7 +837,7 @@ def collect_quant_stats(model, test_fn, save_dir=None, classes=None, inplace_run
         print('Pass 1: Collecting min, max, avg_min, avg_max, mean')
         test_fn(model=model)
         # Collect Laplace distribution stats:
-        print'Pass 2: Collecting b, std parameters'()
+        print('Pass 2: Collecting b, std parameters')
         quant_stats_collector.start_second_pass()
         test_fn(model=model)
         quant_stats_collector.stop_second_pass()
@@ -845,8 +845,7 @@ def collect_quant_stats(model, test_fn, save_dir=None, classes=None, inplace_run
     if save_dir is not None:
         save_path = os.path.join(save_dir, 'acts_quantization_stats.yaml')
         quant_stats_collector.save(save_path)
-        print(('Stats saved to ' + save_path)
-
+        print('Stats saved to ' + save_path)
     return quant_stats_collector.value()
 
 

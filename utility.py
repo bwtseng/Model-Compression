@@ -3,20 +3,23 @@ from collections import OrderedDict
 import yaml
 import distiller
 import policy as ply
-#import thinning
 from pruning import *
 from thinning import *
 from quantization import *
 import inspect 
 import json
 from torch.optim.lr_scheduler import *
-import compression_scheduler as cs 
+import scheduler as cs 
 import torch.optim as optim
 import torch.nn as nn
 from copy import deepcopy
+import logging
 ### **************************************
 ### Configure YAML file and its generation
 ### **************************************
+msglogger = logging.getLogger()
+app_cfg_logger = logging.getLogger("app_cfg")
+
 def filter_kwargs(dict_to_filter, function_to_call):
     """Utility to check which arguments in the passed dictionary exist in a function's signature
     The function returns two dicts, one with just the valid args from the input and one with the invalid args.
@@ -81,8 +84,8 @@ def __policy_params(policy_def, type):
     return name, args
 
 def dict_config(model, optimizer, sched_dict, scheduler=None, resumed_epoch=None):
-    #app_cfg_logger.debug('Schedule contents:\n' + json.dumps(sched_dict, indent=2))
-    print('Schedule contents:\n' + json.dumps(sched_dict, indent=2))
+    app_cfg_logger.debug('Schedule contents:\n' + json.dumps(sched_dict, indent=2))
+    #print('Schedule contents:\n' + json.dumps(sched_dict, indent=2))
     if scheduler is None:
         scheduler = cs.CompressionScheduler(model)
 
@@ -97,8 +100,6 @@ def dict_config(model, optimizer, sched_dict, scheduler=None, resumed_epoch=None
         lr_policies = []
         for policy_def in sched_dict['policies']:
             policy = None
-            #print(policy_def)
-            #print(sched_dict)
             if 'pruner' in policy_def:
                 try:
                     instance_name, args = __policy_params(policy_def, 'pruner')
@@ -195,8 +196,8 @@ def yaml_ordered_load(stream, Loader=yaml.Loader, object_pairs_hook=OrderedDict)
 def file_config(model, optimizer, filename, scheduler=None, resumed_epoch=None):
     """Read the schedule from file"""
     with open(filename, 'r') as stream:
-       #msglogger.info('Reading compression schedule from: %s', filename)
-       print("Reading compression schedule from: {}".format(filename))
+       msglogger.info('Reading compression schedule from: %s', filename)
+       #print("Reading compression schedule from: {}".format(filename))
        try:
             sched_dict = yaml_ordered_load(stream)
             return dict_config(model, optimizer, sched_dict, scheduler, resumed_epoch)
@@ -229,7 +230,6 @@ def get_dummy_input(dataset=None, device=None, input_shape=None):
 
     def create_recurse(shape):
         if all(isinstance(x, int) for x in shape):
-            print("True")
             return create_single(shape)
         return tuple(create_recurse(s) for s in shape)
 
@@ -426,7 +426,9 @@ def config_component_from_file_by_class(model, filename, class_name, **extra_arg
                 for component_name, user_args in components.items():
                     ### ONLY FIND THE POST LINEAR QUANTIZATION CLASS!!!!!
                     if user_args['class'] == class_name:
-                        print('Found component of class {}: Name: {} ; Section: {}'.format(class_name, component_name,
+                        #print('Found component of class {}: Name: {} ; Section: {}'.format(class_name, component_name,
+                        #                                                                    section_name))
+                        msglogger.info( 'Found component of class {0}: Name: {1} ; Section: {2}'.format(class_name, component_name,
                                                                                             section_name))
                         user_args.update(extra_args)
                         return build_component(model, component_name, user_args)
@@ -460,16 +462,157 @@ def make_non_parallel_copy(model):
 ### ****************************************
 
 
+
+### **********************************
+### Used for calling logger function. 
+### **********************************
+def density(tensor):
+    """Computes the density of a tensor.
+    Density is the fraction of non-zero elements in a tensor.
+    If a tensor has a density of 1.0, then it has no zero elements.
+    Args:
+        tensor: the tensor for which we compute the density.
+    Returns:
+        density (float)
+    """
+    # Using torch.nonzero(tensor) can lead to memory exhaustion on
+    # very large tensors, so we count zeros "manually".
+    nonzero = tensor.abs().gt(0).sum()
+    return float(nonzero.item()) / torch.numel(tensor)
+
+
+def sparsity(tensor):
+    """Computes the sparsity of a tensor.
+    Sparsity is the fraction of zero elements in a tensor.
+    If a tensor has a density of 0.0, then it has all zero elements.
+    Sparsity and density are complementary.
+    Args:
+        tensor: the tensor for which we compute the density.
+    Returns:
+        sparsity (float)
+    """
+    return 1.0 - density(tensor)
+
+def sparsity_2D(tensor):
+    """Create a list of sparsity levels for each channel in the tensor 't'
+    For 4D weight tensors (convolution weights), we flatten each kernel (channel)
+    so it becomes a row in a 3D tensor in which each channel is a filter.
+    So if the original 4D weights tensor is:
+        #OFMs x #IFMs x K x K
+    The flattened tensor is:
+        #OFMS x #IFMs x K^2
+    For 2D weight tensors (fully-connected weights), the tensors is shaped as
+        #IFMs x #OFMs
+    so we don't need to flatten anything.
+    To measure 2D sparsity, we sum the absolute values of the elements in each row,
+    and then count the number of rows having sum(abs(row values)) == 0.
+    """
+    if tensor.dim() == 4:
+        # For 4D weights, 2D structures are channels (filter kernels)
+        view_2d = tensor.view(-1, tensor.size(2) * tensor.size(3))
+    elif tensor.dim() == 2:
+        # For 2D weights, 2D structures are either columns or rows.
+        # At the moment, we only support row structures
+        view_2d = tensor
+    else:
+        return 0
+
+    num_structs = view_2d.size()[0]
+    nonzero_structs = len(torch.nonzero(view_2d.abs().sum(dim=1)))
+    return 1 - nonzero_structs/num_structs
+
+
+def density_2D(tensor):
+    """Kernel-wise sparsity for 4D tensors"""
+    return 1 - sparsity_2D(tensor)
+
+def to_np(var):
+    return var.data.cpu().numpy()
+
+
+def size2str(torch_size):
+    if isinstance(torch_size, torch.Size):
+        return size_to_str(torch_size)
+    if isinstance(torch_size, (torch.FloatTensor, torch.cuda.FloatTensor)):
+        return size_to_str(torch_size.size())
+    if isinstance(torch_size, torch.autograd.Variable):
+        return size_to_str(torch_size.data.size())
+    if isinstance(torch_size, tuple) or isinstance(torch_size, list):
+        return size_to_str(torch_size)
+    raise TypeError
+
+
+def size_to_str(torch_size):
+    """Convert a pytorch Size object to a string"""
+    assert isinstance(torch_size, torch.Size) or isinstance(torch_size, tuple) or isinstance(torch_size, list)
+    return '('+(', ').join(['%d' % v for v in torch_size])+')'
+
+
+def norm_filters(weights, p=1):
+    return distiller.norms.filters_lp_norm(weights, p)
+
+
+def log_training_progress(stats_dict, params_dict, epoch, steps_completed, total_steps, log_freq, loggers):
+    """Log information about the training progress, and the distribution of the weight tensors.
+    Args:
+        stats_dict: A tuple of (group_name, dict(var_to_log)).  Grouping statistics variables is useful for logger
+          backends such as TensorBoard.  The dictionary of var_to_log has string key, and float values.
+          For example:
+              stats = ('Peformance/Validation/',
+                       OrderedDict([('Loss', vloss),
+                                    ('Top1', top1),
+                                    ('Top5', top5)]))
+        params_dict: A parameter dictionary, such as the one returned by model.named_parameters()
+        epoch: The current epoch
+        steps_completed: The current step in the epoch
+        total_steps: The total number of training steps taken so far
+        log_freq: The number of steps between logging records
+        loggers: A list of loggers to send the log info to
+    """
+    if loggers is None:
+        return
+    if not isinstance(loggers, list):
+        loggers = [loggers]
+    for logger in loggers:
+        logger.log_training_progress(stats_dict, epoch,
+                                     steps_completed,
+                                     total_steps, freq=log_freq)
+        logger.log_weights_distribution(params_dict, steps_completed)
+
+
+def log_activation_statistics(epoch, phase, loggers, collector):
+    """Log information about the sparsity of the activations"""
+    if collector is None:
+        return
+    if loggers is None:
+        return
+    for logger in loggers:
+        logger.log_activation_statistic(phase, collector.stat_name, collector.value(), epoch)
+
+
+def log_weights_sparsity(model, epoch, loggers):
+    """Log information about the weights sparsity"""
+    for logger in loggers:
+        logger.log_weights_sparsity(model, epoch)
+
+
+### **********************************
+### Used for calling logger function. [end]
+### **********************************
+
+
 if __name__ == "__main__":
-    stream = open("yaml_file/resnet20_filters.schedule_agp.yaml", "r")
-    sched_dict = yaml_ordered_load(stream)
-    from model_zoo.classifier import Net
-    model = Net()
+    #stream = open("yaml_file/resnet20_filters.schedule_agp.yaml", "r")
+    #sched_dict = yaml_ordered_load(stream)
+    import model_zoo as mz
+    model_dict= mz.data_function_dict
+    model = model_dict['cifar10']['vgg']('vgg13_bn', pretrained=False)
     optimizer = optim.SGD(model.parameters(), lr=1e-3, momentum=0.9, weight_decay=1e-4)
+    criterion = nn.CrossEntropyLoss()
     # Setting Learning decay scheduler, that is, decay LR by a factor of 0.1 every 7 epochs
     #exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.7)
     # Set up compreesed config file.
-    compress_scheduler = file_config(model, optimizer, "yaml_file/resnet20_filters.schedule_agp.yaml", None, None)
+    compress_scheduler = file_config(model, optimizer, "yaml_file/vgg13.schedule_agp_cifar10.yaml", None, None)
     """
     extensions = __factory('extensions', model, sched_dict)
     for policy_def in sched_dict['policies']:
@@ -479,9 +622,15 @@ if __name__ == "__main__":
             extension = extensions[instance_name]
             policy = extension
     """
-
+    epoch = 5
+    agg_loss = compress_scheduler.policies[5][0].before_backward_pass(model, 5, 1, 100,  criterion, compress_scheduler.zeros_mask_dict)
+    print(compress_scheduler.policies)
+    print(compress_scheduler.policies[5][0].mask_gradients)
+    print(compress_scheduler.policies[5][0].mask_on_forward_only)
+    if epoch in compress_scheduler.policies:
+        print(True)
     #compress_scheduler.before_parameter_optimization(30, 1, 3, optimizer)
     print(compress_scheduler)
-    compress_scheduler.on_minibatch_begin(15, 1, 3, optimizer)
-    compress_scheduler.on_minibatch_end(15, 1, 3, optimizer)
+    #compress_scheduler.on_minibatch_begin(15, 1, 3, optimizer)
+    #compress_scheduler.on_minibatch_end(15, 1, 3, optimizer)
     #print(compress_scheduler.policies) TODO: can works without any bug here, try filter pruning now!!!!

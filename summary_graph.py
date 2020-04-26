@@ -25,7 +25,7 @@ import logging
 import utility
 from collections import OrderedDict, defaultdict
 from collections.abc import MutableSequence, Iterable
-#msglogger = logging.getLogger()
+msglogger = logging.getLogger()
 
 
 def onnx_name_2_pytorch_name(name):
@@ -396,8 +396,8 @@ class SummaryGraph(object):
             node_is_an_op = False
             node = self.find_param(node_name)
             if node is None:
-                #msglogger.warning("predecessors_f: Could not find node {}".format(node_name))
-                print("predecessors_f: Could not find node {}".format(node_name))
+                msglogger.warning("predecessors_f: Could not find node {}".format(node_name))
+                #print("predecessors_f: Could not find node {}".format(node_name))
                 return []
 
         if done_list is None:

@@ -37,7 +37,7 @@ import utility
 
 #from .policy import ScheduledTrainingPolicy
 #from .summary_graph import SummaryGraph
-#msglogger = logging.getLogger(__name__)
+msglogger = logging.getLogger(__name__)
 
 ThinningRecipe = namedtuple('ThinningRecipe', ['modules', 'parameters'])
 """A ThinningRecipe is composed of two sets of instructions.
@@ -113,7 +113,7 @@ def _directives_equal(d1, d2):
         return d1[0] == d2[0] and torch.equal(d1[1], d2[1])
     if len(d1) == 4:
         e = all(d1[i] == d2[i] for i in (0, 2, 3)) and torch.equal(d1[1], d2[1])
-        #msglogger.debug("{}: \n{}\n{}".format(e, d1, d2))
+        msglogger.debug("{}: \n{}\n{}".format(e, d1, d2))
         return e
     assert ValueError("Unsupported directive length")
 
@@ -129,7 +129,7 @@ def _append_param_directive(thinning_recipe, param_name, directive):
         # directive will cause an exception.
         if _directives_equal(d, directive):
             return
-    #msglogger.debug("\t[recipe] param_directive for {} = {}".format(param_name, directive))
+    msglogger.debug("\t[recipe] param_directive for {} = {}".format(param_name, directive))
     param_directives.append(directive)
     thinning_recipe.parameters[param_name] = param_directives
 
@@ -139,7 +139,7 @@ def _append_module_directive(thinning_recipe, module_name, key, val):
     Parameter directives contain instructions for changing the attributes of 
     PyTorch modules (belonging to a specified model).
     """
-    #msglogger.debug("\t[recipe] setting {}.{} = {}".format(module_name, key, val))
+    msglogger.debug("\t[recipe] setting {}.{} = {}".format(module_name, key, val))
     mod_directive = thinning_recipe.modules.get(module_name, {})
     mod_directive[key] = val
     thinning_recipe.modules[module_name] = mod_directive
@@ -153,7 +153,7 @@ def _append_bn_thinning_directive(thinning_recipe, layers, bn_name, len_thin_fea
     """
     bn_module = layers[bn_name]
     assert isinstance(bn_module, torch.nn.modules.batchnorm.BatchNorm2d)
-    #msglogger.debug("\t[recipe] bn_thinning {}".format(bn_name))
+    msglogger.debug("\t[recipe] bn_thinning {}".format(bn_name))
 
     bn_directive = thinning_recipe.modules.get(bn_name, {})
     bn_directive['num_features'] = len_thin_features
@@ -180,9 +180,9 @@ def apply_and_save_recipe(model, zeros_mask_dict, thinning_recipe, optimizer):
             model.thinning_recipes.append(thinning_recipe)
         else:
             model.thinning_recipes = [thinning_recipe]
-        #msglogger.info("Created, applied and saved a thinning recipe")
+        msglogger.info("Created, applied and saved a thinning recipe")
     else:
-        #msglogger.error("Failed to create a thinning recipe")
+        msglogger.error("Failed to create a thinning recipe")
         pass
 
 def create_thinning_recipe_channels(sgraph, model, zeros_mask_dict):
@@ -211,7 +211,7 @@ def create_thinning_recipe_channels(sgraph, model, zeros_mask_dict):
         # Find all instances of Convolution layers that immediately precede this layer
         predecessors = sgraph.predecessors_f(layer_name, ['Conv'])
         if not predecessors:
-            #msglogger.info("Could not find predecessors for name=%s" % layer_name)
+            msglogger.info("Could not find predecessors for name=%s" % layer_name)
             pass
         for predecessor in predecessors:
             # For each of the convolution layers that precede, we have to reduce the number of output channels.
@@ -246,11 +246,11 @@ def create_thinning_recipe_channels(sgraph, model, zeros_mask_dict):
         bn_layers = sgraph.predecessors_f(layer_name, ['BatchNormalization'])
         for bn_layer in bn_layers:
             # Thinning of the BN layer that follows the convolution
-            #msglogger.debug("[recipe] {}: predecessor BN module = {}".format(layer_name, bn_layer))
+            msglogger.debug("[recipe] {}: predecessor BN module = {}".format(layer_name, bn_layer))
             _append_bn_thinning_directive(thinning_recipe, layers, bn_layer,
                                           len_thin_features=nnz_channels, thin_features=indices)
 
-    #msglogger.debug("Invoking create_thinning_recipe_channels")
+    msglogger.debug("Invoking create_thinning_recipe_channels")
     thinning_recipe = ThinningRecipe(modules={}, parameters={})
     layers = {mod_name: m for mod_name, m in model.named_modules()}
 
@@ -338,9 +338,9 @@ def create_thinning_recipe_filters(sgraph, model, zeros_mask_dict):
         fm_size = layers[successor].in_features // layers[layer_name].out_channels
         in_features = fm_size * num_nnz_filters
         _append_module_directive(thinning_recipe, successor, key='in_features', val=in_features)
-        #msglogger.debug("[recipe] Linear {}: fm_size = {}  layers[{}].out_channels={}".format(
-        #   successor, in_features, layer_name, layers[layer_name].out_channels))
-        #msglogger.debug("[recipe] {}: setting in_features = {}".format(successor, in_features))
+        msglogger.debug("[recipe] Linear {}: fm_size = {}  layers[{}].out_channels={}".format(
+           successor, in_features, layer_name, layers[layer_name].out_channels))
+        msglogger.debug("[recipe] {}: setting in_features = {}".format(successor, in_features))
 
         # Now remove channels from the weights tensor of the successor FC layer:
         # This is a bit tricky:
@@ -358,7 +358,7 @@ def create_thinning_recipe_filters(sgraph, model, zeros_mask_dict):
             _append_bn_thinning_directive(thinning_recipe, layers, bn_layers[0],
                                           len_thin_features=num_nnz_filters, thin_features=indices)
 
-    #msglogger.debug("Invoking create_thinning_recipe_filters")
+    msglogger.debug("Invoking create_thinning_recipe_filters")
 
     thinning_recipe = ThinningRecipe(modules={}, parameters={})
     layers = {mod_name: m for mod_name, m in model.named_modules()}
@@ -376,14 +376,14 @@ def create_thinning_recipe_filters(sgraph, model, zeros_mask_dict):
             raise ValueError("Trying to set zero filters for parameter %s is not allowed" % param_name)
         # If there are non-zero filters in this tensor then continue to next tensor
         if num_filters <= num_nnz_filters:
-            #msglogger.debug("Skipping {} shape={}".format(param_name, param.shape))
-            print("Skipping {} shape={}".format(param_name, param.shape))
+            msglogger.debug("Skipping {} shape={}".format(param_name, param.shape))
+        #    print("Skipping {} shape={}".format(param_name, param.shape))
             continue
 
-        #msglogger.debug("In tensor %s found %d/%d zero filters", param_name,
-        #                num_filters - num_nnz_filters, num_filters)
-        print("In tensor {} found {}/{} zero filters".format(param_name,
-                        num_filters - num_nnz_filters, num_filters))
+        msglogger.debug("In tensor %s found %d/%d zero filters", param_name,
+                        num_filters - num_nnz_filters, num_filters)
+        #print("In tensor {} found {}/{} zero filters".format(param_name,
+        #                num_filters - num_nnz_filters, num_filters))
         handle_layer(layer_name, param_name, num_nnz_filters)
     return thinning_recipe
 
@@ -438,9 +438,9 @@ def execute_thinning_recipes_list(model, zeros_mask_dict, recipe_list):
     to a thinned model. For example, this is invoked when loading a model from a checkpoint.
     """
     for i, recipe in enumerate(recipe_list):
-        #msglogger.debug("Executing recipe %d:" % i)
+        msglogger.debug("Executing recipe %d:" % i)
         execute_thinning_recipe(model, zeros_mask_dict, recipe, optimizer=None, loaded_from_file=True)
-    #msglogger.debug("Executed %d recipes" % len(recipe_list))
+    msglogger.debug("Executed %d recipes" % len(recipe_list))
 
 
 def _optimizer_thinning(optimizer, param, dim, indices, new_shape=None):
@@ -489,12 +489,12 @@ def execute_thinning_recipe(model, zeros_mask_dict, recipe, optimizer, loaded_fr
                 indices_to_select = val[1]
                 # Check that we're not trying to trim a parameter that is already "thin"
                 if running.size(dim_to_trim) != indices_to_select.nelement():
-                    #msglogger.debug("[thinning] {}: setting {} to {}".
-                    #                format(layer_name, attr, indices_to_select.nelement()))
+                    msglogger.debug("[thinning] {}: setting {} to {}".
+                                    format(layer_name, attr, indices_to_select.nelement()))
                     setattr(layers[layer_name], attr,
                             torch.index_select(running, dim=dim_to_trim, index=indices_to_select.to(running.device)))
             else:
-                #msglogger.debug("[thinning] {}: setting {} to {}".format(layer_name, attr, val))
+                msglogger.debug("[thinning] {}: setting {} to {}".format(layer_name, attr, val))
                 setattr(layers[layer_name], attr, val)
 
     assert len(recipe.parameters) > 0
@@ -503,7 +503,7 @@ def execute_thinning_recipe(model, zeros_mask_dict, recipe, optimizer, loaded_fr
         for param_name, param_directives in recipe.parameters.items():
             if param_name == "module.fc.weight":
                 debug = True
-            #msglogger.debug("{} : {}".format(param_name, param_directives))
+            msglogger.debug("{} : {}".format(param_name, param_directives))
             param = utility.model_find_param(model, param_name)
             assert param is not None
             for directive in param_directives:
@@ -511,7 +511,7 @@ def execute_thinning_recipe(model, zeros_mask_dict, recipe, optimizer, loaded_fr
                 indices = directive[1].to(device)
                 len_indices = indices.nelement()
                 if len(directive) == 4:  # TODO: this code is hard to follow
-                    #msglogger.debug("{}-{}-{}: SHAPE = {}".format(param_name, param.shape, id(param), list(directive[2])))
+                    msglogger.debug("{}-{}-{}: SHAPE = {}".format(param_name, param.shape, id(param), list(directive[2])))
                     selection_view = param.view(*directive[2])
                     # Check that we're not trying to trim a parameter that is already "thin"
                     if param.data.size(dim) != len_indices:
@@ -523,21 +523,21 @@ def execute_thinning_recipe(model, zeros_mask_dict, recipe, optimizer, loaded_fr
                                 param.grad = torch.index_select(grad_selection_view, dim, indices)
                                 # update optimizer
                                 if _optimizer_thinning(optimizer, param, dim, indices, directive[3]):
-                                    #msglogger.debug("Updated [4D] velocity buffer for {} (dim={},size={},shape={})".
-                                    #                format(param_name, dim, len_indices, directive[3]))
+                                    msglogger.debug("Updated [4D] velocity buffer for {} (dim={},size={},shape={})".
+                                                    format(param_name, dim, len_indices, directive[3]))
                                     pass 
                     param.data = param.view(*directive[3])
                     if param.grad is not None:
                         param.grad = param.grad.resize_(*directive[3])
                 else:
                     if param.data.size(dim) != len_indices:
-                        #msglogger.debug("[thinning] changing param {} ({})  dim:{}  new len: {}".format(
-                        #               param_name, param.shape, dim, len_indices))
-                        print("[thinning] changing param {} ({})  dim:{}  new len: {}".format(
+                        msglogger.debug("[thinning] changing param {} ({})  dim:{}  new len: {}".format(
                                        param_name, param.shape, dim, len_indices))
+                        #print("[thinning] changing param {} ({})  dim:{}  new len: {}".format(
+                        #               param_name, param.shape, dim, len_indices))
                         assert param.size(dim) > len_indices
                         param.data = torch.index_select(param.data, dim, indices.to(param.device))
-                        #msglogger.debug("[thinning] changed param {}".format(param_name))
+                        msglogger.debug("[thinning] changed param {}".format(param_name))
                     # We also need to change the dimensions of the gradient tensor.
                     # If have not done a backward-pass thus far, then the gradient will
                     # not exist, and therefore won't need to be re-dimensioned.
@@ -545,8 +545,8 @@ def execute_thinning_recipe(model, zeros_mask_dict, recipe, optimizer, loaded_fr
                         param.grad = torch.index_select(param.grad, dim, indices.to(param.device))
                         # update optimizer
                         if _optimizer_thinning(optimizer, param, dim, indices):
-                            #msglogger.debug("Updated velocity buffer %s" % param_name)
-                            print("Updated velocity buffer {}.".format(param_name))
+                            msglogger.debug("Updated velocity buffer %s" % param_name)
+                            #print("Updated velocity buffer {}.".format(param_name))
                 if not loaded_from_file and zeros_mask_dict:
                     # If the masks are loaded from a checkpoint file, then we don't need to change
                     # their shape, because they are already correctly shaped
@@ -574,11 +574,11 @@ def resnet_cifar_remove_layers(model):
         block = int(parts[2])
         if parts[3] == 'downsample':
             downsample = int(parts[4][0])
-            #msglogger.info("Removing layer: %s [layer=%d block=%d downsample=%d]" %
-            #               (param_name[:param_name.find('.weight')], layer, block, downsample))
+            msglogger.info("Removing layer: %s [layer=%d block=%d downsample=%d]" %
+                           (param_name[:param_name.find('.weight')], layer, block, downsample))
         else:
             conv = int(parts[3][-1]) - 1
-            #msglogger.info("Removing layer: %s [layer=%d block=%d conv=%d]" %
-            #               (param_name[:param_name.find('.weight')], layer, block, conv))
+            msglogger.info("Removing layer: %s [layer=%d block=%d conv=%d]" %
+                           (param_name[:param_name.find('.weight')], layer, block, conv))
 
         model.module.layer_gates[layer][block][conv] = False

@@ -1,0 +1,12 @@
+lr_schedulers:
+   pruning_lr:
+     class: StepLR
+     gamma: 0.1
+     step_size: 35
+     
+policies:
+  - lr_scheduler:
+      instance_name: pruning_lr
+    starting_epoch: 0
+    ending_epoch: 105
+    frequency: 1

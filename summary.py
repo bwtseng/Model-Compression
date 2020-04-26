@@ -49,6 +49,7 @@ def weights_sparsity_summary(model, return_total_sparsity=False, param_dims=[2, 
 
 def weights_sparsity_tbl_summary(model, return_total_sparsity=False, param_dims=[2, 4]):
     df, total_sparsity = weights_sparsity_summary(model, return_total_sparsity=True, param_dims=param_dims)
+    df.to_csv("summary.csv", index=False)
     t = tabulate(df, headers='keys', tablefmt='psql', floatfmt=".5f")
     if return_total_sparsity:
         return t, total_sparsity

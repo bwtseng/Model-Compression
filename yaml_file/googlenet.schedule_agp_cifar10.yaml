@@ -1,0 +1,95 @@
+pruners:
+  fc_pruner:
+    class: AutomatedGradualPruner
+    initial_sparsity : 0.05
+    final_sparsity: 0.8
+    weights: [
+        module.fc.weight, 
+    ]
+
+  conv_pruner:
+    class: AutomatedGradualPruner
+    initial_sparsity : 0.05
+    final_sparsity: 0.85
+    weights: [
+      module.conv1.conv.weight,
+      module.inception3a.branch1.conv.weight,
+      module.inception3a.branch2.0.conv.weight,
+      module.inception3a.branch2.1.conv.weight,
+      module.inception3a.branch3.0.conv.weight,
+      module.inception3a.branch3.1.conv.weight,
+      module.inception3a.branch4.1.conv.weight,
+      module.inception3b.branch1.conv.weight,
+      module.inception3b.branch2.0.conv.weight,
+      module.inception3b.branch2.1.conv.weight,
+      module.inception3b.branch3.0.conv.weight,
+      module.inception3b.branch3.1.conv.weight,
+      module.inception3b.branch4.1.conv.weight,
+      module.inception4a.branch1.conv.weight,
+      module.inception4a.branch2.0.conv.weight,
+      module.inception4a.branch2.1.conv.weight,
+      module.inception4a.branch3.0.conv.weight,
+      module.inception4a.branch3.1.conv.weight,
+      module.inception4a.branch4.1.conv.weight,
+      module.inception4b.branch1.conv.weight,
+      module.inception4b.branch2.0.conv.weight,
+      module.inception4b.branch2.1.conv.weight,
+      module.inception4b.branch3.0.conv.weight,
+      module.inception4b.branch3.1.conv.weight,
+      module.inception4b.branch4.1.conv.weight,
+      module.inception4c.branch1.conv.weight,
+      module.inception4c.branch2.0.conv.weight,
+      module.inception4c.branch2.1.conv.weight,
+      module.inception4c.branch3.0.conv.weight,
+      module.inception4c.branch3.1.conv.weight,
+      module.inception4c.branch4.1.conv.weight,
+      module.inception4d.branch1.conv.weight,
+      module.inception4d.branch2.0.conv.weight,
+      module.inception4d.branch2.1.conv.weight,
+      module.inception4d.branch3.0.conv.weight,
+      module.inception4d.branch3.1.conv.weight,
+      module.inception4d.branch4.1.conv.weight,
+      module.inception4e.branch1.conv.weight,
+      module.inception4e.branch2.0.conv.weight,
+      module.inception4e.branch2.1.conv.weight,
+      module.inception4e.branch3.0.conv.weight,
+      module.inception4e.branch3.1.conv.weight,
+      module.inception4e.branch4.1.conv.weight,
+      module.inception5a.branch1.conv.weight,
+      module.inception5a.branch2.0.conv.weight,
+      module.inception5a.branch2.1.conv.weight,
+      module.inception5a.branch3.0.conv.weight,
+      module.inception5a.branch3.1.conv.weight,
+      module.inception5a.branch4.1.conv.weight,
+      module.inception5b.branch1.conv.weight,
+      module.inception5b.branch2.0.conv.weight,
+      module.inception5b.branch2.1.conv.weight,
+      module.inception5b.branch3.0.conv.weight,
+      module.inception5b.branch3.1.conv.weight,
+      module.inception5b.branch4.1.conv.weight,
+    ]
+
+
+lr_schedulers:
+   pruning_lr:
+     class: ExponentialLR
+     gamma: 0.95
+
+policies:
+
+  - pruner:
+      instance_name : conv_pruner
+    starting_epoch: 0
+    ending_epoch: 25
+    frequency: 1
+  - pruner:
+      instance_name : fc_pruner
+    starting_epoch: 1
+    ending_epoch: 25
+    frequency: 1
+
+  - lr_scheduler:
+      instance_name: pruning_lr
+    starting_epoch: 40
+    ending_epoch: 100
+    frequency: 1

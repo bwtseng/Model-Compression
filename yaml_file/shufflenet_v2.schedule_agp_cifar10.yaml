@@ -1,0 +1,96 @@
+pruners:
+  fc_pruner:
+    class: AutomatedGradualPruner
+    initial_sparsity : 0.05
+    final_sparsity: 0.80
+    weights: [
+        module.fc.weight,
+    ]
+
+  conv_pruner:
+    class: AutomatedGradualPruner
+    initial_sparsity : 0.05
+    final_sparsity: 0.6
+    weights: [
+        module.conv1.0.weight,
+        module.stage2.0.branch1.0.weight,
+        module.stage2.0.branch1.2.weight,
+        module.stage2.0.branch2.0.weight,
+        module.stage2.0.branch2.3.weight,
+        module.stage2.0.branch2.5.weight,
+        module.stage2.1.branch2.0.weight,
+        module.stage2.1.branch2.3.weight,
+        module.stage2.1.branch2.5.weight,
+        module.stage2.2.branch2.0.weight,
+        module.stage2.2.branch2.3.weight,
+        module.stage2.2.branch2.5.weight,
+        module.stage3.0.branch1.0.weight,
+    ]
+
+  conv_pruner:
+    class: AutomatedGradualPruner
+    initial_sparsity : 0.05
+    final_sparsity: 0.80
+    weights: [
+        module.stage3.0.branch1.2.weight,
+        module.stage3.0.branch2.0.weight,
+        module.stage3.0.branch2.3.weight,
+        module.stage3.0.branch2.5.weight,
+        module.stage3.1.branch2.0.weight,
+        module.stage3.1.branch2.3.weight,
+        module.stage3.1.branch2.5.weight,
+        module.stage3.2.branch2.0.weight,
+        module.stage3.2.branch2.3.weight,
+        module.stage3.2.branch2.5.weight,
+        module.stage3.3.branch2.0.weight,
+        module.stage3.3.branch2.3.weight,
+        module.stage3.3.branch2.5.weight,
+        module.stage3.4.branch2.0.weight,
+        module.stage3.4.branch2.3.weight,
+        module.stage3.4.branch2.5.weight,
+        module.stage3.5.branch2.0.weight,
+        module.stage3.5.branch2.3.weight,
+        module.stage3.5.branch2.5.weight,
+        module.stage3.6.branch2.0.weight,
+        module.stage3.6.branch2.3.weight,
+        module.stage3.6.branch2.5.weight,
+        module.stage4.0.branch1.0.weight,
+        module.stage4.0.branch1.2.weight,
+        module.stage4.0.branch2.0.weight,
+        module.stage4.0.branch2.3.weight,
+        module.stage4.0.branch2.5.weight,
+        module.stage4.1.branch2.0.weight,
+        module.stage4.1.branch2.3.weight,
+        module.stage4.1.branch2.5.weight,
+        module.stage4.2.branch2.0.weight,
+        module.stage4.2.branch2.3.weight,
+        module.stage4.2.branch2.5.weight,
+        module.conv5.0.weight,
+    ]
+
+lr_schedulers:
+   pruning_lr:
+     class: StepLR
+     gamma: 0.10
+     step_size: 30
+
+policies:
+
+  - pruner:
+      instance_name : conv_pruner
+    starting_epoch: 0
+    ending_epoch: 20
+    frequency: 1
+
+  - pruner:
+      instance_name : fc_pruner
+    starting_epoch: 0
+    ending_epoch: 20
+    frequency: 1
+
+  - lr_scheduler:
+      instance_name: pruning_lr
+    starting_epoch: 40
+    ending_epoch: 100
+    frequency: 1
+

@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 from torch.hub import load_state_dict_from_url
 from distiller.modules import EltwiseAdd
@@ -256,7 +257,8 @@ class MobileNetV2(nn.Module):
         # Cannot use "squeeze" as batch-size can be 1 => must use reshape with x.shape[0]
         #x = nn.functional.adaptive_avg_pool2d(x, 1).reshape(x.shape[0], -1)
         x = self.avg_pool(x)
-        x = torch.flatten(x, 1)
+        #x = torch.flatten(x, 1)
+        x = x.view(x.size(0), -1)
         x = self.classifier(x)
         return x
 
@@ -264,7 +266,7 @@ class MobileNetV2(nn.Module):
         return self._forward_impl(x)
 
 
-def mobilenet_v2(pretrained=False, progress=True, **kwargs):
+def mobilenet_v2(pretrained=False, progress=True, width_mult=1, **kwargs):
     """
     Constructs a MobileNetV2 architecture from
     `"MobileNetV2: Inverted Residuals and Linear Bottlenecks" <https://arxiv.org/abs/1801.04381>`_.
@@ -280,11 +282,12 @@ def mobilenet_v2(pretrained=False, progress=True, **kwargs):
     return model
 
 
-def mobilenet_v1(pretrained, progress=True, width_mult=1.0, device=None, **kwargs):
+def mobilenet_v1(pretrained, progress=True, channel_multiplier=1.0, device=None, **kwargs):
     model = MobileNetV1()
     if pretrained:
-        state_dict = load_state_dict_from_url(model_urls['mobilenet_v1'],
-                                              progress=progress)
+        #state_dict = load_state_dict_from_url(model_urls['mobilenet_v1'],
+        #                                      progress=progress)
+        checkpoint = torch.load('/home/bwtseng/Downloads/mobilenet_sgd_rmsprop_69.526.pth')
         if device == 'cpu':
             # Remove the module appeared in the name of whole structure.
             from collections import OrderedDict
@@ -295,13 +298,14 @@ def mobilenet_v1(pretrained, progress=True, width_mult=1.0, device=None, **kwarg
                 new_state_dict[name] = v
             model.load_state_dict(new_state_dict)
         else:
+            state_dict = checkpoint['state_dict']
             model.load_state_dict(state_dict)
-        return model
+    return model
 
 def create_mobilenet(arch, pretrained, width_mult=1.0, device=None):
-    if arch == 'mobilenetv1':
+    if arch == 'mobilenet_v1':
         model = mobilenet_v1(pretrained=pretrained, channel_multiplier=width_mult, device=device)
-    elif arch =='mobilenetv2':
+    elif arch =='mobilenet_v2':
         model = mobilenet_v2(pretrained=pretrained, width_mult=width_mult)
     else:
         raise ValueError('Not support this kind of mobilenet model !!!')

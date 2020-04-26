@@ -5,23 +5,26 @@ pruners:
   fc_pruner:
     class: AutomatedGradualPruner
     initial_sparsity : 0.05
-    final_sparsity: 0.55
-    weights: module.fc.weight
-
-  conv_pruner_0:
-    class: AutomatedGradualPruner
-    initial_sparsity : 0.05
-    final_sparsity: 0.20
+    final_sparsity: 0.85
     weights: [
-        module.layer1.0.conv1.weight,
+        module.fc.weight,
     ]
 
-  conv_pruner_1:
+  conv_pruner_0: 
     class: AutomatedGradualPruner
     initial_sparsity : 0.05
     final_sparsity: 0.35
-    weights: [
-    #module.layer1.0.conv1.weight,
+    weights: [ 
+    module.layer1.0.conv1.weight,
+    module.layer1.0.conv2.weight,
+    ]
+
+  conv_pruner_1: 
+    class: AutomatedGradualPruner
+    initial_sparsity : 0.05
+    final_sparsity: 0.35
+    weights: [ 
+    module.layer1.0.conv1.weight,
     module.layer1.0.conv2.weight,
     module.layer1.0.conv3.weight,
     module.layer1.0.downsample.0.weight,
@@ -31,20 +34,15 @@ pruners:
     module.layer1.2.conv1.weight,
     module.layer1.2.conv2.weight,
     module.layer1.2.conv3.weight,
-    module.layer2.0.conv1.weight,
-    # The first layer of each block seems to be very sensitive.
-    module.layer2.0.conv1.weight,
-    module.layer3.0.conv1.weight,
-    module.layer4.0.conv1.weight,
     ]
 
 
   conv_pruner_2:
     class: AutomatedGradualPruner
     initial_sparsity : 0.05
-    final_sparsity: 0.45
+    final_sparsity: 0.55
     weights: [
-    #module.layer2.0.conv1.weight,
+    module.layer2.0.conv1.weight,
     module.layer2.0.conv2.weight,
     module.layer2.0.conv3.weight,
     module.layer2.0.downsample.0.weight,
@@ -57,17 +55,17 @@ pruners:
     module.layer2.3.conv1.weight,
     module.layer2.3.conv2.weight,
     module.layer2.3.conv3.weight,
-   ]
+    module.layer3.0.conv1.weight,
+    module.layer3.0.conv2.weight,
+    module.layer3.0.conv3.weight,
+    module.layer3.0.downsample.0.weight,
+    ]
 
   conv_pruner_3:
     class: AutomatedGradualPruner
     initial_sparsity : 0.05
-    final_sparsity: 0.5
+    final_sparsity: 0.85
     weights: [
-    #module.layer3.0.conv1.weight,
-    module.layer3.0.conv2.weight,
-    module.layer3.0.conv3.weight,
-    module.layer3.0.downsample.0.weight,
     module.layer3.1.conv1.weight,
     module.layer3.1.conv2.weight,
     module.layer3.1.conv3.weight,
@@ -83,14 +81,7 @@ pruners:
     module.layer3.5.conv1.weight,
     module.layer3.5.conv2.weight,
     module.layer3.5.conv3.weight,
-    ]
-
-  conv_pruner_4:
-    class: AutomatedGradualPruner
-    initial_sparsity : 0.05
-    final_sparsity : 0.55
-    weights: [
-    #module.layer4.0.conv1.weight,
+    module.layer4.0.conv1.weight,
     module.layer4.0.conv2.weight,
     module.layer4.0.conv3.weight,
     module.layer4.0.downsample.0.weight,
@@ -99,14 +90,14 @@ pruners:
     module.layer4.1.conv3.weight,
     module.layer4.2.conv1.weight,
     module.layer4.2.conv2.weight,
-    module.layer4.2.conv3.weight
-    ]
-
+    module.layer4.2.conv3.weight,
+]
 
 lr_schedulers:
    pruning_lr:
-     class: ExponentialLR
-     gamma: 0.95
+     class: StepLR
+     gamma: 0.10
+     step_size: 30
 
 
 policies:
@@ -114,41 +105,35 @@ policies:
   - pruner:
       instance_name : conv_pruner_0
     starting_epoch: 0
-    ending_epoch: 35
+    ending_epoch: 20
     frequency: 1
 
   - pruner:
       instance_name : conv_pruner_1
     starting_epoch: 0
-    ending_epoch: 35
+    ending_epoch: 20
     frequency: 1
-    
+
   - pruner:
       instance_name : conv_pruner_2
     starting_epoch: 0
-    ending_epoch: 35
+    ending_epoch: 20
     frequency: 1
 
   - pruner:
       instance_name : conv_pruner_3
     starting_epoch: 0
-    ending_epoch: 35
-    frequency: 1
-
-  - pruner:
-      instance_name : conv_pruner_4
-    starting_epoch: 0
-    ending_epoch: 35
+    ending_epoch: 20
     frequency: 1
 
   - pruner:
       instance_name : fc_pruner
-    starting_epoch: 0
-    ending_epoch: 30
+    starting_epoch: 1
+    ending_epoch: 20
     frequency: 1
 
   - lr_scheduler:
       instance_name: pruning_lr
-    starting_epoch: 40
+    starting_epoch: 20
     ending_epoch: 100
-    frequency: 1
+    frequency: 40

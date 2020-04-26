@@ -317,7 +317,7 @@ class InceptionC(nn.Module):
         branch_pool = self.branch_pool(branch_pool)
 
         outputs = [branch1x1, branch7x7, branch7x7dbl, branch_pool]
-        return outputs
+        return self.concat(outputs)
 
     def forward(self, x):
         outputs = self._forward(x)
@@ -428,7 +428,7 @@ class InceptionAux(nn.Module):
         self.conv1.stddev = 0.01
         self.fc = nn.Linear(768, num_classes)
         self.fc.stddev = 0.001
-
+        self.concat = distiller.modules.Concat(dim=1)
     def forward(self, x):
         # N x 768 x 17 x 17
         #x = F.avg_pool2d(x, kernel_size=5, stride=3)
@@ -446,8 +446,8 @@ class InceptionAux(nn.Module):
         # ***********************************
         # May Modify to the tensor.view(-1, )
         # ***********************************
-        x = torch.flatten(x, 1)
-
+        #x = torch.flatten(x, 1)
+        x = self.concat(x)
         # N x 768
         x = self.fc(x)
         # N x 1000

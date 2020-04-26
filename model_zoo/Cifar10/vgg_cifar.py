@@ -2,7 +2,7 @@ import torch.nn as nn
 
 __all__ = [
     'VGGCifar', 'vgg11_cifar', 'vgg11_bn_cifar', 'vgg13_cifar', 'vgg13_bn_cifar', 'vgg16_cifar', 'vgg16_bn_cifar',
-    'vgg19_bn_cifar', 'vgg19_cifar', 'create_vgg_cifar'
+    'vgg19_bn_cifar', 'vgg19_cifar', 'create_vgg_cifar10'
 ]
 
 
@@ -57,7 +57,7 @@ cfg = {
     'E': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 256, 'M', 512, 512, 512, 512, 'M', 512, 512, 512, 512, 'M'],
 }
 
-def create_vgg_cifar(arch, pretrained=None, **kwargs):
+def create_vgg_cifar10(arch, pretrained=None, **kwargs):
     # This pretrained option is really a fake argument, we just make sure all the 
     # create function input is regularized.
     if arch == 'vgg11':

@@ -8,6 +8,7 @@ from tabulate import tabulate
 from distiller.utils import normalize_module_name
 from tabulate import tabulate # Like LeTex Tabkle.
 from numbers import Number  # what's this package used for?
+msglogger = logging.getLogger()
 def save_checkpoint(epoch, arch, model, optimizer=None, scheduler=None,
                     extras=None, is_best=False, name=None, dir='.'):
     """Save a pytorch training checkpoint
@@ -111,14 +112,15 @@ def load_checkpoint(model, chkpt_file, optimizer=None,
         # ******************** 
         # In Log file column 28.
         # ********************
-        #msglogger.info("Loaded compression schedule from checkpoint (epoch {})".format(
-        #    checkpoint_epoch))
-        print("Loaded compression schedule from checkpoint (epoch {})".format(
-                checkpoint_epoch))
+        msglogger.info("Loaded compression schedule from checkpoint (epoch {})".format(
+                                                                            checkpoint_epoch))
+        #print("Loaded compression schedule from checkpoint (epoch {})".format(
+        #        checkpoint_epoch))
         return normalize_keys
 
     def _load_and_execute_thinning_recipes():
-        print("Loaded a thinning recipe from the checkpoint")
+        #print("Loaded a thinning recipe from the checkpoint")
+        msglogger.info("Loaded a thinning recipe from the checkpoint")
         # Cache the recipes in case we need them later
         model.thinning_recipes = checkpoint['thinning_recipes']
         if normalize_dataparallel_keys:
@@ -136,9 +138,14 @@ def load_checkpoint(model, chkpt_file, optimizer=None,
             # this is required to support SGD.__init__()
             dest_optimizer = cls(model.parameters(), lr=1)
             dest_optimizer.load_state_dict(src_state_dict)
-            print('Optimizer of type {} was loaded from checkpoint'.format(type(dest_optimizer)))
+            #print('Optimizer of type {} was loaded from checkpoint'.format(type(dest_optimizer)))
+            msglogger.info('Optimizer of type {type} was loaded from checkpoint'.format(
+                            type=type(dest_optimizer)))
             optimizer_param_groups = dest_optimizer.state_dict()['param_groups']
-            print('Optimizer Args: {}'.format(
+            #print('Optimizer Args: {}'.format(
+            #                dict((k, v) for k, v in optimizer_param_groups[0].items()
+            #                     if k != 'params')))
+            msglogger.info('Optimizer Args: {}'.format(
                             dict((k, v) for k, v in optimizer_param_groups[0].items()
                                  if k != 'params')))
             return dest_optimizer
@@ -146,7 +153,8 @@ def load_checkpoint(model, chkpt_file, optimizer=None,
             # Older checkpoints do support optimizer loading: They either had an 'optimizer' field
             # (different name) which was not used during the load, or they didn't even checkpoint
             # the optimizer.
-            print('Optimizer could not be loaded from checkpoint.')
+            #print('Optimizer could not be loaded from checkpoint.')
+            msglogger.warning('Optimizer could not be loaded from checkpoint.')
             return None
 
     def _create_model_from_ckpt():
@@ -169,14 +177,17 @@ def load_checkpoint(model, chkpt_file, optimizer=None,
         raise IOError(ENOENT, 'Could not find a checkpoint file at', chkpt_file)
     assert optimizer == None, "argument optimizer is deprecated and must be set to None"
 
-    print("=> loading checkpoint {}.".format(chkpt_file))
+    #print("=> loading checkpoint {}.".format(chkpt_file))
+    msglogger.info("= loading checkpoint %s", chkpt_file)
     checkpoint = torch.load(chkpt_file, map_location=lambda storage, loc: storage)
     # *********************
     # in log file column 15.
     # *********************
-    print("=> Checkpoint contents:\n {} \n".format(get_contents_table(checkpoint)))
+    #print("=> Checkpoint contents:\n {} \n".format(get_contents_table(checkpoint)))
+    msglogger.info("=> Checkpoint contents:\n %s \n", get_contents_table(checkpoint))
     if 'extras' in checkpoint:
-        print("=> Checkpoint['extras'] contents:\n{}\n".format(get_contents_table(checkpoint['extras'])))
+        #print("=> Checkpoint['extras'] contents:\n{}\n".format(get_contents_table(checkpoint['extras'])))
+        msglogger.info("=> Checkpoint['extras'] contents:\n%s\n", get_contents_table(checkpoint['extras']))
     if 'state_dict' not in checkpoint:
         raise ValueError("Checkpoint must contain the model parameters under the key 'state_dict'")
 
@@ -196,8 +207,8 @@ def load_checkpoint(model, chkpt_file, optimizer=None,
         compression_scheduler = distiller.CompressionScheduler(model)
         normalize_dataparallel_keys = _load_compression_scheduler()
     else:
-        print("Warning: compression schedule data does not exist in the checkpoint")
-
+        #print("Warning: compression schedule data does not exist in the checkpoint")
+        msglogger("Warning: compression schedule data does not exist in the checkpoint")
 
     if 'thinning_recipes' in checkpoint:
         if not compression_scheduler:
@@ -212,7 +223,8 @@ def load_checkpoint(model, chkpt_file, optimizer=None,
         quantizer.prepare_model(qmd['dummy_input'])
 
         if qmd.get('pytorch_convert', False):
-            print('Converting Distiller PTQ model to PyTorch quantization API')
+            #print('Converting Distiller PTQ model to PyTorch quantization API')
+            msglogger.info('Converting Distiller PTQ model to PyTorch quantization API')
             model = quantizer.convert_to_pytorch(qmd['dummy_input'], backend=qmd.get('pytorch_convert_backend', None))
 
     if normalize_dataparallel_keys:
@@ -223,10 +235,10 @@ def load_checkpoint(model, chkpt_file, optimizer=None,
         # This is pytorch 1.1+
         missing_keys, unexpected_keys = anomalous_keys
         if unexpected_keys:
-            #msglogger.warning("Warning: the loaded checkpoint (%s) contains %d unexpected state keys" %
-            #                  (chkpt_file, len(unexpected_keys)))
-            print("Warning: the loaded checkpoint {} contains {} unexpected state keys.".format(
-                              (chkpt_file, len(unexpected_keys))))
+            msglogger.warning("Warning: the loaded checkpoint (%s) contains %d unexpected state keys" %
+                              (chkpt_file, len(unexpected_keys)))
+            #print("Warning: the loaded checkpoint {} contains {} unexpected state keys.".format(
+            #                  (chkpt_file, len(unexpected_keys))))
         if missing_keys:
             raise ValueError("The loaded checkpoint (%s) is missing %d state keys" %
                              (chkpt_file, len(missing_keys)))
@@ -239,7 +251,9 @@ def load_checkpoint(model, chkpt_file, optimizer=None,
         return model, None, None, 0
 
     optimizer = _load_optimizer()
-    print("=> loaded checkpoint '{f}' (epoch {e})".format(f=str(chkpt_file),
+    #print("=> loaded checkpoint '{f}' (epoch {e})".format(f=str(chkpt_file),
+    #                                                               e=checkpoint_epoch))
+    msglogger.info("=> loaded checkpoint '{f}' (epoch {e})".format(f=str(chkpt_file),
                                                                    e=checkpoint_epoch))
     _sanity_check()
     return model, compression_scheduler, optimizer, start_epoch
