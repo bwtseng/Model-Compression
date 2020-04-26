@@ -24,7 +24,7 @@ Currently, I focus on how to porting deep neural network to our local device wit
 ├── ptq_lapq.py
 ├── README.md
 ├── main.py
-├── log.txt
+├── cifar10_download.py
 ├── model_zoo/
 |	├── Imagenet
 |	├── Cifar10
@@ -48,7 +48,10 @@ Currently, I focus on how to porting deep neural network to our local device wit
 |	├── regularizer.py
 |	└── ...
 ├── yaml_file/
-|	├── configle_file_example.yanl
+|	├── configle_file_example.yaml
+|	└── ...
+├── sensitivity_analysis/
+|	├── summary csv/txt file
 |	└── ...
 └── ...
 
