@@ -56,13 +56,13 @@ Currently, I focus on how to porting deep neural network to our local device wit
 
 # Vision, Goal and Execution   
 
-To enable our local models leverage the useful package Distiller without specified dataset and model listed in their repository, I study the distiller code whilst trying to incorporate into our local models with the easiest manner, that is, one can use the main.py to enjoy pruning and post-quantization so far . Note that it just supports  basic architecture and datasets, but it is more flexible to add new architecture, dataset and algorithm than distiller's repository.  More specifically,  by adding your new model script into the folder (model_zoo/data_folder), and type few lines to add the create_architecture_function in the python file (model_zoo/__init__.py). After completing these trivial steps, you are capable of using the command argument to train your specified architecture with the strategies configured into the YAML file created by each local user. 
+To enable our local models leverage the useful package Distiller without specified dataset and model listed in their repository, I study the distiller code whilst trying to incorporate into our local models with the easiest manner, that is, one can use the main.py to enjoy pruning, sensitivity analysis, and post-quantization so far . Note that it just supports  basic architecture and datasets, but it is more flexible to add new architecture, dataset and algorithm than distiller's repository.  More specifically,  by adding your new model script into the folder (model_zoo/data_folder), and type few lines to add the create_architecture_function in the python file (model_zoo/__init__.py). After completing these trivial steps, you are capable of using the command argument to train your specified architecture with the strategies configured into the YAML file created by each local user. 
 
 ```
-python main.py -a resnet --dataset imagenet --data_dir path/to/your/data/folder -b 32 --compre path/to/your/cofig/yaml/file/
+python main.py -a resnet --dataset imagenet --data_dir path/to/your/data/folder -b 32 --compress path/to/your/cofig/yaml/file/ --out_dir
 ```
 
-For executing, we can perform sensitive analysis (--sa), train (--train), test (--test), post quantization (--pose_qunantization_test), please follow above command line. Note that rest of the arguments are not listed here, you can just use --help to find out the detailed information.
+For executing, we can perform sensitive analysis (--sa), train (--train), test (--test) and post quantization (--pose_qunantization_test), please follow above command line. The rest of arguments are not listed here, you can just use --help to find out the detailed information. Note that you need to specify the absolute path to your model checkpoint to the argument --model_path for testing or continuing your training!
 
 Our future goal may incorporate or even create more algorithms to the repository so that every user can enjoy the model compression in this kind of easy manner. As a consequence, we can put more emphasis on research rather than tool develop.
 
@@ -70,7 +70,7 @@ Our future goal may incorporate or even create more algorithms to the repository
 
 Currently, we experiment on ImageNet dataset using ShuffleNet, ResNet and SqueezeNet. Since it's time-consuming, so the result table may create in the near future.
 
-Thank for the github https://github.com/huyvnphan/PyTorch-CIFAR10/tree/master/cifar10_models
+Thank the [Github repo](https://github.com/huyvnphan/PyTorch-CIFAR10/tree/master/cifar10_models ) for giving us several pre-trained model and benchmark.
 
 # Prerequisites
 
@@ -83,4 +83,5 @@ Plearse install the Distiller package following the official instruction.
 Very appreciate Intel distiller for the summarization and introduction on their page. If our revised version violates the license, please be kind to contact us and we will turn this repository into private mode immediately. Thank You!
 
 Best regards,
+
 BW Tseng
