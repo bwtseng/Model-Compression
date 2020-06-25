@@ -2,6 +2,9 @@ import pandas as pd
 from tabulate import tabulate 
 import torch
 import distiller
+import logging
+msglogger = logging.getLogger()
+
 def weights_sparsity_summary(model, return_total_sparsity=False, param_dims=[2, 4]):
     df = pd.DataFrame(columns=['Name', 'Shape', 'NNZ (dense)', 'NNZ (sparse)',
                                'Cols (%)', 'Rows (%)', 'Ch (%)', '2D (%)', '3D (%)',

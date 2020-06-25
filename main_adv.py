@@ -5,6 +5,7 @@ import copy
 import math
 import shutil # In pytorch, it's often used. It's totally different from Tensorflow.
 import pyvww # In the case leveraging the visual wake worlds dataset.
+import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 from tabulate import tabulate
@@ -37,6 +38,8 @@ import logging
 #from config_logger import *
 #from config_file import file_config, dict_config, config_component_from_file_by_class
 import config
+from apex import amp
+
 
 # Early exist and disitleation method are not supported up to now.
 msglogger = logging.getLogger()
@@ -50,7 +53,7 @@ def _init_logger(args, script_dir):
        os.makedirs(args.output_dir)
     name = args.name
     if args.name == '':
-        name = args.arch + "_" + args.dataset + "_log"
+        name = args.stage + '_' + args.arch + "_" + args.dataset + "_log"
 
     msglogger = config.config_pylogger(os.path.join(script_dir, 'logging.conf'),
                                              name, args.output_dir, args.verbose)
@@ -67,18 +70,21 @@ def _init_logger(args, script_dir):
 
 def sensitivity_analysis(model, criterion, device, num_classes, args, sparsities, logger):
     # This sample application can be invoked to execute Sensitivity Analysis on your
-    # model.  The ouptut is saved to CSV and PNG.
+    # model.  The ouptut is saved to CSV and PNG. 
+    # criterion, device, num_classes, loggers, args=None, parameter_name=None
     msglogger.info("Running Sensitivity Test (analysis).")
-
     test_fnc = partial(test, criterion=criterion, device=device, num_classes=num_classes, args=args, loggers=logger)
     which_params = [(param_name, torch.std(param).item()) for param_name, param in model.named_parameters()]
-    sensitivity = sa.perform_sensitivity_analysis(model, net_params=which_params, sparsities=sparsities,
+    sensitivity, eval_scores_dict = sa.perform_sensitivity_analysis(model, net_params=which_params, sparsities=sparsities,
                                                   test_func=test_fnc, group=args.sensitivity)
     if not os.path.isdir('sensitivity_analysis'):
         os.mkdir('sensitivity_analysis')
-
-    sa.sensitivities_to_png(sensitivity, os.path.join('sensitivity_analysis', 'sensitivity_'+args.sensitivity+'.png'))
-    sa.sensitivities_to_csv(sensitivity, os.path.join('sensitivity_analysis', 'sensitivity_'+args.sensitivity+'.csv'))
+    name = '_' + args.arch + '_' + args.dataset
+    #sa.sensitivities_to_png(sensitivity, os.path.join('sensitivity_analysis', 'sensitivity_'+args.sensitivity + name +'.png'))
+    #sa.sensitivities_to_csv(sensitivity, os.path.join('sensitivity_analysis', 'sensitivity_'+args.sensitivity + name+'.csv'))
+    sa.sensitivities_to_png(sensitivity, os.path.join(msglogger.logdir, 'sensitivity_'+args.sensitivity + name +'.png'))
+    sa.sensitivities_to_csv(sensitivity, os.path.join(msglogger.logdir, 'sensitivity_'+args.sensitivity + name+'.csv'))
+    sa._pickle_eval_scores_dict(eval_scores_dict, os.path.join(msglogger.logdir, 'greedy_selection_eval_scores_dict.pkl'))
 
 def data_processing(dataset, data_dir, batch_size, workers=4, split_ratio=0, data_transforms=None):
     """
@@ -88,8 +94,9 @@ def data_processing(dataset, data_dir, batch_size, workers=4, split_ratio=0, dat
                  and image should be seperated to the class forlder according to its class.
         batchsize: argument used in the pytorch dataloader function
     Output:
-        train and test dataloader in a dictionary format.
+        train and test dataloader in a dictionary format, if test_size > 0, it will also include validation set.
     """
+
     msglogger.debug("Create dataloaders, including training, testing and vlaidation (if split ratio > 0).")
     dataset = dataset.lower()
     dataloaders = {}
@@ -102,7 +109,7 @@ def data_processing(dataset, data_dir, batch_size, workers=4, split_ratio=0, dat
                 transforms.RandomCrop(32, padding=4),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
-                #transforms.Normalize(mean, std)
+                #transforms.Normalize(mean, std)  if not using PGDattacker, enable this normalize function.
             ]),
         'test': transforms.Compose([
                 transforms.ToTensor(),
@@ -176,6 +183,7 @@ def data_processing(dataset, data_dir, batch_size, workers=4, split_ratio=0, dat
                                                 transform=data_transforms['test'])
         except ValueError:
             print("please check whether your data path is correct or not.")
+
     if dataset =='vww':
         num_classes = 2
     else: 
@@ -189,19 +197,17 @@ def data_processing(dataset, data_dir, batch_size, workers=4, split_ratio=0, dat
                                                         batch_size=batch_size, shuffle=True, 
                                                         num_workers=workers, pin_memory=True)
     dataloaders['test'] = torch.utils.data.DataLoader(test_dataset, 
-                                                        batch_size=batch_size, shuffle=True, 
+                                                        batch_size=batch_size, shuffle=False, 
                                                         num_workers=workers, pin_memory=True)                
-    
     dataset_sizes['train'] = total_num
     dataset_sizes['test'] = test_num   
-    #table_data = [('train', str(train_num)),('test', str(test_num))]    
-    # Split dataset using random_split in Pytorch instead of Scikit-Learng split_train_validation         
+
     if split_ratio != 0 :
         val_num = int(total_num *0.1)
         train_num = int(total_num - val_num)
         train_dataset, val_dataset = torch.utils.data.random_split(train_dataset, [train_num, val_num])
         dataloaders['train'] = torch.utils.data.DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=workers, pin_memory=True)
-        dataloaders['val'] = torch.utils.data.DataLoader(val_dataset, batch_size=32, shuffle=True, num_workers=workers, pin_memory=True)
+        dataloaders['val'] = torch.utils.data.DataLoader(val_dataset, batch_size=32, shuffle=False, num_workers=workers, pin_memory=True)
         dataset_sizes['train'] = train_num
         dataset_sizes['val'] = val_num
         table_data = [('train', str(train_num)),('val', str(val_num))] + [table_data[-1]]   
@@ -222,7 +228,6 @@ def create_model(dataset, arch, pretrained, device=None):
         for i in model_function.keys():
             if arch.startswith(i):
                 model_name = i
-        #print(model_name)
         if model_name == '':
             raise ValueError("Not support this model so far.")
         #model_name = arch.split('_')[0]
@@ -232,7 +237,6 @@ def create_model(dataset, arch, pretrained, device=None):
                 model = model_function_dict[dataset][model_name](arch, pretrained, 1.0, device=device)
             else:
                 model = model_function_dict[dataset][model_name](arch, pretrained, device=device)       
-            #model_function_dict[dataset][model_name](arch, args.pre_trained)
         except KeyError:
             raise ValueError("Not support this architecture so far.")
     else : 
@@ -247,10 +251,13 @@ def _log_training_progress(num_classes, classerr_ori, classerr_adv, losses, epoc
     
     #if not early_exit_mode(args):
     if num_classes >= 10:
-        errs['Top1'] = classerr.value(1)
-        errs['Top5'] = classerr.value(5)
+        errs['Nat_Top1'] = classerr_ori.value(1)
+        errs['Nat_Top5'] = classerr_ori.value(5)
+        errs['Adv_Top1'] = classerr_adv.value(1)
+        errs['Adv_Top5'] = classerr_adv.value(5)
     else: 
-        errs['Top1'] = classerr.value(1)
+        errs['Nat_Top1'] = classerr_ori.value(1)
+        errs['Adv_Top1'] = classerr_adv.value(1)
     """
     Early exist model may be incorporated in the future.
     else:
@@ -259,9 +266,11 @@ def _log_training_progress(num_classes, classerr_ori, classerr_adv, losses, epoc
             errs['Top1_exit' + str(exitnum)] = args.exiterrors[exitnum].value(1)
             errs['Top5_exit' + str(exitnum)] = args.exiterrors[exitnum].value(5)
     """
+
     stats_dict = OrderedDict()
     for loss_name, meter in losses.items():
         stats_dict[loss_name] = meter.mean
+
     stats_dict.update(errs)
     stats_dict['LR'] = optimizer.param_groups[0]['lr']
     stats_dict['Time'] = batch_time.mean
@@ -272,10 +281,11 @@ def _log_training_progress(num_classes, classerr_ori, classerr_adv, losses, epoc
                               steps_per_epoch, args.print_freq, loggers)
 
 def light_train_with_distiller(model, criterion, optimizer, compress_scheduler, device, num_classes, 
-                                dataset_sizes, loggers, epoch=1):
+                               dataset_sizes, loggers, epoch=1):
 
-    """Training-with-compression loop for one epoch. 
-    INPORTANT INFORMATION:
+    """
+    Training-with-compression loop for one epoch. 
+    IMPORTANT INFORMATION:
     For each training step in epoch:
         compression_scheduler.on_minibatch_begin(epoch)
         output = model(input)
@@ -292,33 +302,21 @@ def light_train_with_distiller(model, criterion, optimizer, compress_scheduler, 
     if num_classes >= 10:
         classerr_adv = tnt.ClassErrorMeter(accuracy=True, topk=[1, 5]) 
         classerr_ori = tnt.ClassErrorMeter(accuracy=True, topk=[1, 5]) 
-        #classerr = tnt.ClassErrorMeter(accuracy=True, topk=[1, 5])
     else:
-        classerr_adv = tnt.ClassErrorMeter(accuracy=True, topk=[1]) # Remove top 5.
+        classerr_adv = tnt.ClassErrorMeter(accuracy=True, topk=[1]) 
         classerr_ori = tnt.ClassErrorMeter(accuracy=True, topk=[1])
-        #classerr = tnt.ClassErrorMeter(accuracy=True, topk=[1])
     batch_time = tnt.AverageValueMeter()
     data_time = tnt.AverageValueMeter()
     
-
     OVERALL_LOSS_KEY = 'Overall Loss'
-    #OBJECTIVE_LOSS_KEY = 'Objective Loss'
-    Adversarial_LOSS_KEY = "Adversarial Loss"
-    Natural_LOSS_KEY = "Natural Loss"
+    #OBJECTIVE_LOSS_KEY = 'Objective Loss' # Only compute loss from the cost function.
+    ADV_LOSS_KEY = "Adversarial Loss"
+    NAT_LOSS_KEY = "Natural Loss"
     losses = OrderedDict([(OVERALL_LOSS_KEY, tnt.AverageValueMeter()),
                         #(OBJECTIVE_LOSS_KEY, tnt.AverageValueMeter()),
-                        (Adversarial_LOSS_KEY, tnt.AverageValueMeter()),
-                        (Natural_LOSS_KEY, tnt.AverageValueMeter())])    
-    """
-    else:
-        OVERALL_LOSS_KEY = 'Overall Loss'
-        OBJECTIVE_LOSS_KEY = 'Objective Loss'
-        losses = OrderedDict([(OVERALL_LOSS_KEY, tnt.AverageValueMeter()),
-                            (OBJECTIVE_LOSS_KEY, tnt.AverageValueMeter())])
-    """
-
+                        (ADV_LOSS_KEY, tnt.AverageValueMeter()),
+                        (NAT_LOSS_KEY, tnt.AverageValueMeter())])    
     model.train()
-    #acc_stats = [] 
     end = time.time()
     for train_step, data in enumerate(dataloaders["train"], 0):
         inputs = data[0].to(device)
@@ -331,7 +329,7 @@ def light_train_with_distiller(model, criterion, optimizer, compress_scheduler, 
         if compress_scheduler:
             compress_scheduler.on_minibatch_begin(epoch, train_step, steps_per_epoch, optimizer)
         
-        ori_output, adv_output, perturbated_input = model(inputs, labels)
+        ori_output, adv_output, perturbated_input = model([inputs, labels])
         
         if args.mixup:
             adv_loss = utl.mixup_criterion(criterion, adv_output, target_a, target_b, lam, args.smooth)
@@ -345,11 +343,12 @@ def light_train_with_distiller(model, criterion, optimizer, compress_scheduler, 
         classerr_adv.add(adv_output.detach(), labels)
         #acc_stats.append([classerr.value(1), classerr.value(5)])
         #losses[OBJECTIVE_LOSS_KEY].add(ori_loss.item()) #Indicate original output loss 
-        losses[Adversarial_LOSS_KEY].add(adv_loss.item())
-        losses[Natural_LOSS_KEY].add(ori_loss.item())
+        losses[ADV_LOSS_KEY].add(adv_loss.item())
+        losses[NAT_LOSS_KEY].add(ori_loss.item())
         """
+        ****
         Drop the early exist mode in this first version
-        
+        ****
         if not early_exit_mode(args):
         loss = criterion(output, target)
         # Measure accuracy
@@ -362,81 +361,69 @@ def light_train_with_distiller(model, criterion, optimizer, compress_scheduler, 
         """
         if compress_scheduler: 
             # Should be revised if using adversarial robustness training.
-            if args.adv_train:
-                agg_loss =  compress_scheduler.before_backward_pass(epoch, train_step, steps_per_epoch, adv_loss,
-                                                                      optimizer=optimizer, return_loss_components=True)
-            else:
-                agg_loss =  compress_scheduler.before_backward_pass(epoch, train_step, steps_per_epoch, ori_loss,
-                                                                      optimizer=optimizer, return_loss_components=True)            
-            # should by modified, this may incorporated in the future.
+            agg_loss =  compress_scheduler.before_backward_pass(epoch, train_step, steps_per_epoch, adv_loss,
+                                                                optimizer=optimizer, return_loss_components=True)
+    
+            # Should be modified, this may be incorporated in the future.
             loss = agg_loss.overall_loss
+            # if admm loss is zero, following line may raise error.
             losses[OVERALL_LOSS_KEY].add(loss.item())
-
             for lc in agg_loss.loss_components:
                 if lc.name not in losses:
                     losses[lc.name] = tnt.AverageValueMeter()
                 losses[lc.name].add(lc.value.item())
         
         else: 
-            if args.adv_train:
-                losses[OVERALL_LOSS_KEY].add(adv_loss.item())
-                loss = adv_loss
-            else:
-                losses[OVERALL_LOSS_KEY].add(ori_loss.item())
-                loss = ori_loss
+            losses[OVERALL_LOSS_KEY].add(adv_loss.item())
+            loss = adv_loss
 
+
+        
         optimizer.zero_grad()
+        # Try AMP!
+        #with amp.scale_loss(loss, optimizer) as scaled_loss:
+        #        scaled_loss.backward()
+ 
         loss.backward()
         if compress_scheduler:
             # Applied zero gradient here.
             compress_scheduler.before_parameter_optimization(epoch, train_step, steps_per_epoch, optimizer)
         optimizer.step()
         if compress_scheduler:
-            # Using pass function.
+            # Sometime this on "minibatch_end" function will not do anything.
             compress_scheduler.on_minibatch_end(epoch, train_step, steps_per_epoch, optimizer)
         batch_time.add(time.time() - end)
         steps_completed = (train_step + 1)
 
         if steps_completed % args.print_freq == 0 :
-            print(agg_loss)
-            #classerr = classerr_adv if args.adv_train else classerr_ori
             _log_training_progress(num_classes, classerr_ori, classerr_adv, losses, epoch, steps_completed, steps_per_epoch, 
                                    batch_time, optimizer, loggers)
         end = time.time()
+
     utl.log_weights_sparsity(model, epoch, loggers)
     if num_classes >= 10:
-        #return classerr.value(1), classerr.value(5), losses[OVERALL_LOSS_KEY] # classerr.vlaue(5)
-        return classerr_ori.value(1), classerr_ori.value(5), losses[Natural_LOSS_KEY], classerr_adv.value(1), \
-                classerr_adv.value(5), losses[Adversarial_LOSS_KEY], losses[OVERALL_LOSS_KEY]
+        return classerr_ori.value(1), classerr_ori.value(5), losses[NAT_LOSS_KEY], classerr_adv.value(1), \
+                classerr_adv.value(5), losses[ADV_LOSS_KEY], losses[OVERALL_LOSS_KEY]
+    
     else:
-        #return classerr.value(1), losses[OVERALL_LOSS_KEY] # classerr.vlaue(5)
-        return classerr_ori.value(1), losses[Natural_LOSS_KEY],  \
-                classerr_adv.value(1), losses[Adversarial_LOSS_KEY], losses[OVERALL_LOSS_KEY]
+        return classerr_ori.value(1), losses[NAT_LOSS_KEY],  \
+                classerr_adv.value(1), losses[ADV_LOSS_KEY], losses[OVERALL_LOSS_KEY]
 
 def _log_valiation_progress(num_classes, classerr_ori, classerr_adv, losses, epoch, steps_completed, steps_per_epoch, loggers):
     #if not _is_earlyexit(args):
     if num_classes >= 10 :
-        """
-        stats_dict = OrderedDict([('Loss', losses['objective_loss'].mean),
-                                    ('Top1', classerr.value(1)),
-                                    ('Top5', classerr.value(5))])
-        """
-        stats_dict = OrderedDict([('nat_Loss', losses['natural_loss'].mean)
-                                    ('adv_Loss', losses['adversarial_loss'].mean),
-                                    ('nat_Top1', classerr_ori.value(1)),
-                                    ('nat_Top5', classerr_ori.value(5)),
-                                    ('adv_Top1', classerr_adv.value(1)),
-                                    ('adv_Top5', classerr_adv.value(5))])    
+        stats_dict = OrderedDict([('Nat_Loss', losses['natural_loss'].mean),
+                                    ('Nat_Top1', classerr_ori.value(1)),
+                                    ('Nat_Top5', classerr_ori.value(5)),
+                                    ('Adv_Loss', losses['adversarial_loss'].mean),
+                                    ('Adv_Top1', classerr_adv.value(1)),
+                                    ('Adv_Top5', classerr_adv.value(5))])    
 
     else:
-        """
-        stats_dict = OrderedDict([('Loss', losses['objective_loss'].mean),
-                                    ('Top1', classerr.value(1))])   
-        """   
-        stats_dict = OrderedDict([('nat_Loss', losses['natural_loss'].mean)
-                                    ('adv_Loss', losses['adversarial_loss'].mean),
-                                    ('nat_Top1', classerr_ori.value(1)),
-                                    ('adv_Top1', classerr_adv.value(1))])    
+        stats_dict = OrderedDict([('Nat_Loss', losses['natural_loss'].mean),
+                                    ('Nat_Top1', classerr_ori.value(1)),
+                                    ('Adv_Loss', losses['adversarial_loss'].mean),
+                                    ('Adv_Top1', classerr_adv.value(1))])    
     """
     Early exist model use following code:
     else:
@@ -503,7 +490,7 @@ def _validate(data_group, model, criterion, device, num_classes, loggers, epoch=
             inputs = data[0].to(device)
             labels = data[1].to(device)
             #output = model(inputs)
-            ori_output, adv_output, perturbated_input = model(inputs, labels)
+            ori_output, adv_output, perturbated_input = model([inputs, labels])
             # Early exist mode will incorporate in the near future.
             '''
             if not _is_earlyexit(args):
@@ -535,7 +522,7 @@ def _validate(data_group, model, criterion, device, num_classes, loggers, epoch=
                 #classerr = classerr_adv if args.adv_train else classerr_ori
                 _log_valiation_progress(num_classes, classerr_ori, classerr_adv, losses, epoch, steps_completed, total_steps, [loggers[1]])
 
-    if num_classes >= 5:
+    if num_classes >= 10:
         """
         stats = ('Performance/Validation/',
         OrderedDict([('Loss', losses['objective_loss'].mean),
@@ -543,14 +530,14 @@ def _validate(data_group, model, criterion, device, num_classes, loggers, epoch=
                         ('Top5', classerr.value(5))]))
         """
         stats = ('Performance/Validation/',
-        OrderedDict([('nat_Loss', losses['natural_loss'].mean),
-                     ('adv_Loss', losses['adversarial_loss'].mean),
-                     ('nat_Top1', classerr_ori.value(1)),
-                     ('nat_Top5', classerr_ori.value(5)),
-                     ('adv_Top1', classerr_adv.value(1)),
-                     ('adv_Top5', classerr_adv.value(5))]))    
-        
-        distiller.log_training_progress(stats, None, epoch, steps_completed=0,
+        OrderedDict([('Nat_Loss', losses['natural_loss'].mean),
+                     ('Nat_Top1', classerr_ori.value(1)),
+                     ('Nat_Top5', classerr_ori.value(5)),
+                     ('Adv_Loss', losses['adversarial_loss'].mean),
+                     ('Adv_Top1', classerr_adv.value(1)),
+                     ('Adv_Top5', classerr_adv.value(5))]))    
+
+        utl.log_training_progress(stats, None, epoch, steps_completed=0,
                                         total_steps=1, log_freq=1, loggers=[loggers[0]])
 
         msglogger.info('==> Nat_Top1 {:.5f} \t Nat_Top5 {:.5f} \t Nat_Loss: {:.5f} \t ' 
@@ -558,23 +545,19 @@ def _validate(data_group, model, criterion, device, num_classes, loggers, epoch=
                         classerr_ori.value(1), classerr_ori.value(5),  losses['natural_loss'].mean, 
                         classerr_adv.value(1), classerr_adv.value(5),  losses['adversarial_loss'].mean))
 
-        #return  classerr.value(1),  classerr.value(5), losses['objective_loss'].mean 
         return classerr_ori.value(1), classerr_ori.value(5), losses['natural_loss'].mean,  \
                 classerr_adv.value(1), classerr_adv.value(5), losses['adversarial_loss'].mean
+
     else:
-        """
         stats = ('Performance/Validation/',
-        OrderedDict([('Loss', losses['objective_loss'].mean),
-                        ('Top1', classerr.value(1))]))
-        """
-        stats = ('Performance/Validation/',
-        OrderedDict([('nat_Loss', losses['natural_loss'].mean),
-                     ('adv_Loss', losses['adversarial_loss'].mean),
-                     ('nat_Top1', classerr_ori.value(1)),
-                     ('adv_Top1', classerr_ori.value(1))]))    
+        OrderedDict([('Nat_Loss', losses['natural_loss'].mean),
+                     ('Nat_Top1', classerr_ori.value(1)),
+                     ('Adv_Loss', losses['adversarial_loss'].mean),
+                     ('Adv_Top1', classerr_adv.value(1))]))    
         
-        distiller.log_training_progress(stats, None, epoch, steps_completed=0,
+        utl.log_training_progress(stats, None, epoch, steps_completed=0,
                                         total_steps=1, log_freq=1, loggers=[loggers[0]])
+
         msglogger.info('==> Nat_Top1 {:.5f} \t Nat_Loss: {:.5f} \t Adv_Top1 {:.5f} \t Adv_Loss: {:.5f}\n.'.format(
                         classerr_ori.value(1), classerr_ori.value(5), losses['natural_loss'].mean,
                         classerr_adv.value(1), classerr_adv.value(5), losses['adversarial_loss'].mean))
@@ -583,8 +566,9 @@ def _validate(data_group, model, criterion, device, num_classes, loggers, epoch=
         return classerr_ori.value(1), losses['natural_loss'].mean,  \
                 classerr_adv.value(1), losses['adversarial_loss'].mean
 
-def _log_best_scores(performance_tracker, logger, how_many=-1):
-    """Utility to log the best scores.
+def _log_best_scores(args, performance_tracker, logger, how_many=-1):
+    """
+    Utility to log the best scores.
     This function is currently written for pruning use-cases, but can be generalized.
     """
     assert isinstance(performance_tracker, (pt.SparsityAccuracyTracker))
@@ -593,8 +577,9 @@ def _log_best_scores(performance_tracker, logger, how_many=-1):
     how_many = min(how_many, performance_tracker.max_len)
     best_scores = performance_tracker.best_scores(how_many)
     for score in best_scores:
-        logger.info('==> Best [Top1: %.3f   Top5: %.3f   Sparsity:%.2f   NNZ-Params: %d on epoch: %d]',
-                    score.top1, score.top5, score.sparsity, -score.params_nnz_cnt, score.epoch)
+        logger.info('==> Best [Nat_Top1: %.3f Nat_Top5: %.3f   Adv_Top1: %.3f Adv_Top5: %.3f   Sparsity:%.2f   NNZ-Params: %d on epoch: %d]',
+                    score.nat_top1, score.nat_top5, score.adv_top1, score.adv_top5, score.sparsity, -score.params_nnz_cnt, score.epoch) 
+
 
 def trian_validate_with_scheduling(args, net, criterion, optimizer, compress_scheduler, device, num_classes, 
                                     dataset_sizes, loggers, epoch=1, validate=True, verbose=True):
@@ -602,49 +587,50 @@ def trian_validate_with_scheduling(args, net, criterion, optimizer, compress_sch
     # At first, we need to specify the model name, and its learning progress:
     if not os.path.isdir(args.output_dir):
         os.mkdir(args.output_dir)
-
     name = args.name
     if args.name == '':
         name = args.arch + "_" + args.dataset
-
     # Must exist pruning model.
-    "這個找min-max的方法可能需要修改! 我必須再想想到底該怎麼寫會比較好呢?"
-    if 'max_epoch' in compress_scheduler.pruner_info:
+    #print(compress_scheduler.policies[epoch][0].lr_scheduler.base_lrs)
+    if compress_scheduler.prune_mechanism: 
         if epoch == (compress_scheduler.pruner_info['max_epoch']):
+            # Reset optimizer and learning rate.
+            compress_scheduler.policies[epoch][0].lr_scheduler.optimizer.param_groups[0]['lr'] = args.lr_retrain
+            compress_scheduler.policies[epoch][0].lr_scheduler.base_lrs = [0.01]
+            compress_scheduler.policies[epoch][0].lr_scheduler.optimizer.param_groups[0]['momentum'] = 0.9
+            compress_scheduler.policies[epoch][0].lr_scheduler.optimizer.param_groups[0]['initial_lr'] = args.lr_retrain
+            # Reset learning rate and momentum buffer for next learning stage! 
+            # Should know whether the learning rate decay is based on epochs or steps 
+            # Or more, the meaning of last epoch argument indicates current epoch.
             for group in optimizer.param_groups:
-                group['lr'] = args.lr_retrain
-
+                for p in group['params']:
+                    if 'momentum_buffer' in optimizer.state[p]:
+                        optimizer.state[p].pop('momentum_buffer', None)
+             
         if epoch == (compress_scheduler.pruner_info['min_epoch']):
+            # Reset learning rate and momentum buffer for next learning stage! 
             for group in optimizer.param_groups:
-                group['lr'] = args.lr_prune
-
+                group['lr'] = args.lr_prune    
+                group['initial_lr'] = args.lr_prune
+                # for group in optimizer.param_groups:
+                for p in group['params']:
+                    if 'momentum_buffer' in optimizer.state[p]:
+                        optimizer.state[p].pop('momentum_buffer', None)
+        
         if epoch >= compress_scheduler.pruner_info['max_epoch']:
             name  += "_retrain"
+        
         elif epoch < compress_scheduler.pruner_info['min_epoch']:
             name += "_pretrain"
         else:
             name += "_prune" 
     else: 
+        # pre-train or re-train phase. 
         name = name + "_" + args.stage
     
-    #if 'min_epoch' in  compress_scheduler.pruner_info:
-    #    min_epoch = compress_scheduler.pruner_info['min_epoch']
-
-    """
-    if epoch >= compress_scheduler.pruner_info['max_epoch']:
-        name  += "_retrain"
-    elif epoch < compress_scheduler.pruner_info['min_epoch']:
-        name += "_pretrain"
-    else:
-        name += "_admm"
-
-    max_epoch = compress_scheduler.pruner_info['max_epoch']
-    min_epoch = compress_scheduler.pruner_info['min_epoch']
-    """
-
     if compress_scheduler:
             compress_scheduler.on_epoch_begin(epoch, optimizer)
-    
+
     if num_classes >= 10:
         nat_top1, nat_top5, nat_loss, adv_top1, adv_top5, adv_loss, loss = light_train_with_distiller(net, criterion, optimizer, compress_scheduler, 
                                                                                                 device, num_classes, dataset_sizes, loggers, epoch)
@@ -665,37 +651,37 @@ def trian_validate_with_scheduling(args, net, criterion, optimizer, compress_sch
                 nat_top1, nat_loss, adv_top1, adv_loss = _validate('test', net, criterion, device, num_classes, loggers, epoch=epoch) 
 
     if compress_scheduler:
-        loss = adv_loss if args.adv_train else nat_loss
-        top1 = adv_top1 if args.adv_train else nat_top1
-        top5 = adv_top5 if args.adv_train else nat_top5
+        loss = adv_loss 
+        top1 = adv_top1 
+        top5 = adv_top5 
         compress_scheduler.on_epoch_end(epoch, optimizer, metrics={'min':loss, 'max':top1})
 
     # Build performance tracker object whilst saving it.
     tracker = pt.SparsityAccuracyTracker(args.num_best_scores)    
     if num_classes >= 10:
-        tracker.step(net, epoch, top1=top1, top5=top5)
+        tracker.step(net, epoch, nat_top1=nat_top1, nat_top5=nat_top5, adv_top1=adv_top1, adv_top5=adv_top5, adv_train=True)
     else:
-        tracker.step(net, epoch, top1=top1)
+        tracker.step(net, epoch, nat_top1=nat_top1, adv_top1=adv_top1)
 
-    _log_best_scores(tracker, msglogger)
+    _log_best_scores(args, tracker, msglogger)
     best_score = tracker.best_scores()[0]
     is_best = epoch == best_score.epoch
     #top1 = adv_top1 if args.adv else nat_top1
-    checkpoint_extras = {'current_top1': top1,
-                            'best_top1': best_score.top1,
-                            'best_epoch': best_score.epoch}
+    checkpoint_extras = {'current_nat_top1': nat_top1,
+                        'current_adv_top1': adv_top1,
+                        'best_nat_top1': best_score.nat_top1,
+                        'best_adv_top1': best_score.adv_top1,
+                        'best_epoch': best_score.epoch}
+
                             
     # Check whether the out direcotry is already built.
     ckpt.save_checkpoint(args.epoch, args.arch, net, optimizer=optimizer,
                          scheduler=compress_scheduler, extras=checkpoint_extras,
-                         #is_best=is_best, name=name, dir=args.model_path)
                          is_best=is_best, name=name, dir=msglogger.logdir)
 
     if num_classes >= 10:
-        #return top1, top5, loss, tracker
         return nat_top1, nat_top5, nat_loss, adv_top1, adv_top5, adv_loss, tracker
     else:
-        #return top1, loss, tracker
         return nat_top1, nat_loss, adv_top1, adv_loss
 
 def test(model, criterion, device, num_classes, loggers, args=None, parameter_name=None):
@@ -722,6 +708,7 @@ def test(model, criterion, device, num_classes, loggers, args=None, parameter_na
     # Can be modified! I think this is too complex for us, we just need to be specific.
     # with collectors_context(activations_collectors["test"]) as collectors:
     if num_classes >= 10:
+        # data_group, model, criterion, device, num_classes, loggers, epoch=-1
         nat_top1, nat_top5, nat_loss, adv_top1, adv_top5, adv_loss = _validate('test', model, criterion, device, num_classes, loggers=loggers)
         return nat_top1, nat_top5, nat_loss, adv_top1, adv_top5, adv_loss
     else:
@@ -778,7 +765,10 @@ def quantize_and_test_model(test_loader, model, criterion, args, device,
     del qe_model
     return test_res
 
-
+"""
+****
+Comment this line before we check out there is no bug in our new implementation.
+****
 class AttackPGD(nn.Module):
     def __init__(self, basic_model, args):
         super(AttackPGD, self).__init__()
@@ -787,7 +777,6 @@ class AttackPGD(nn.Module):
         self.step_size = args.step_size / 255
         self.epsilon = args.epsilon / 255
         self.num_steps = args.num_steps
-
 
     def forward(self, input, target):    # do forward in the module.py
         #if not args.attack :
@@ -806,10 +795,41 @@ class AttackPGD(nn.Module):
             x = torch.min(torch.max(x, input - self.epsilon), input + self.epsilon)
             x = torch.clamp(x, 0, 1)
         return self.basic_model(input), self.basic_model(x) , x
+"""
 
+class AttackPGD(nn.Module):
+    def __init__(self, basic_model, args):
+        super(AttackPGD, self).__init__()
+        self.basic_model = basic_model
+        self.rand = args.random_start
+        self.step_size = args.step_size / 255
+        self.epsilon = args.epsilon / 255
+        self.num_steps = args.num_steps
+ 
+    def forward(self, input):    
+        # do forward in the module.py
+        # if not args.attack :
+        #    return self.basic_model(input), input
+        if len(input) == 2 :
+            x = input[0].detach()
+            if self.rand:
+                x = x + torch.zeros_like(x).uniform_(-self.epsilon, self.epsilon)
+            for i in range(self.num_steps):
+                x.requires_grad_()
+                with torch.enable_grad():
+                    logits = self.basic_model(x)
+                    loss = F.cross_entropy(logits, input[1], size_average=False)
+                grad = torch.autograd.grad(loss, [x])[0]
+                x = x.detach() + self.step_size*torch.sign(grad.detach())
+                # Normalized !
+                x = torch.min(torch.max(x, input[0] - self.epsilon), input[0] + self.epsilon)
+                x = torch.clamp(x, 0, 1)
+            return self.basic_model(input[0]), self.basic_model(x) , x
+        else: 
+            return self.basic_model(input)
 
 if __name__ == '__main__':
-    # Classifiy the argparse tomorrow!
+    # Classifiy the argparse is the first priority thing we TODO.
     # Imagenet dataset path: /home/swai01/imagenet_datasets/raw-data
     parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
     parser.add_argument('--weight-decay', '--wd', default=1e-4, type=float,
@@ -823,12 +843,12 @@ if __name__ == '__main__':
     parser.add_argument('--split_ratio', '-sr', type=float, default=0.1, help='Split training set into two gropus.')
     # May add two learning rate argument, one for pruning and the other for reset!
     parser.add_argument('--lr_pretrain', type=float, default=0.1, help="Initial learning rate for pretrain phase.")
-    parser.add_argument('--lr_prune', type=float, default=0.001, help="Initial learning rate for pruner.")
-    parser.add_argument('--lr_retrain', type=float, default=0.001, help="Initial learning rate for retrain phase.")
+    parser.add_argument('--lr_prune', type=float, default=0.01, help="Initial learning rate for pruner.")
+    parser.add_argument('--lr_retrain', type=float, default=0.01, help="Initial learning rate for retrain phase.")
     parser.add_argument('--cpu', default=False, action='store_true', help="If GPU is full process.")
     parser.add_argument('--train', default=False, action='store_true', help="Training phase.")
     parser.add_argument('--test', default=False, action='store_true', help="Testing phase.")
-    parser.add_argument('--model_path', default='/home/bwtseng/Downloads/model_compression/model_save/', type=str, help='Path to trained model.')
+    parser.add_argument('--model_path', default='', type=str, help='Path to trained model.')
     parser.add_argument('--compress', type=str, help='Path to compress configure file.')
     parser.add_argument('--arch', '-a', type=str, required=True, help='Name of used Architecture.')
     parser.add_argument('--name', default='', type=str, help='Save file name.')
@@ -840,7 +860,7 @@ if __name__ == '__main__':
     parser.add_argument('--post_qe_test', default=False, action='store_true', help='whether testing with quantization model.')
     parser.add_argument('--sensitivity', '--sa', choices=['element', 'filter', 'channel'],
                         type=lambda s: s.lower(), help='test the sensitivity of layers to pruning')
-    parser.add_argument('--sensitivity_range', '--sr', type=float, nargs=3, default=[0.0, 0.95, 0.05],
+    parser.add_argument('--sensitivity_range', '--sr', type=float, nargs=3, default=[0.0, 0.95, 0.05], #
                         help='an optional parameter for sensitivity testing '
                              'providing the range of sparsities to test.\n'
                              'This is equivalent to creating sensitivities = np.arange(start, stop, step)')
@@ -851,6 +871,7 @@ if __name__ == '__main__':
     parser.add_argument('--print_freq', type=int, default=100, help='Record frequency')
     parser.add_argument('--output_dir', type=str, default='/home/bwtseng/Downloads/model_compression/model_save/', 
                         help='Path to your saved file. ')
+
     # Below are two useful training mechansim, proposed by facebook and google respectively.
     parser.add_argument('--alpha', default=0.0, type=float, help='Parameter of mixup data'
                                                                             'function.')
@@ -858,14 +879,16 @@ if __name__ == '__main__':
                                                                             'augumentation mechanisms.')
     parser.add_argument('--warmup', default=False, action='store_true', help='Wrap optimizer')
     parser.add_argument('--smooth_eps', default=0.0, type=float, help='Parameter of smooth factor.')
-   
+    # Adversarial attack argument
     parser.add_argument('--epsilon', default=8.0, type=float, help='PGD model parameter')
     parser.add_argument('--num_steps', default=10, type=int, help='PGD model parameter')
     parser.add_argument('--step_size', default=2.0, type=float, help='PGD model parameter')
     parser.add_argument('--random_start', default=True, type=bool, help='PGD model parameter')
     parser.add_argument('--adv_train', default=False, action='store_true', help='Turn on adversarial training.')
     parser.add_argument('--stage', type=str, required=True, help='The first learning procedue of your yaml file configuration' 
-                                                                 'and only support pretrain, pruned and retrain')
+                                                                 'and it supports combine, naive, retrain, sensitivity and test')
+    parser.add_argument('--apex', default=False, action='store_true', help='Use mix precesion training to lower the memory usage for each script.')
+
     distiller.quantization.add_post_train_quant_args(parser, add_lapq_args=True)
     args = parser.parse_args()
     print("\n Argument property: {}.".format(args))
@@ -923,21 +946,12 @@ if __name__ == '__main__':
 
     else: 
         model = create_model(args.dataset, args.arch, args.pre_trained, device=device)
-        """
-        if parallel:
-            if arch.startswith('alexnet') or arch.startswith('vgg'):
-                model.features = torch.nn.DataParallel(model.features, device_ids=device_ids)
-            else:
-                model = torch.nn.DataParallel(model, device_ids=device_ids)
-        """
-        if args.parallel:
-            model = torch.nn.DataParallel(model, device_ids=device)
-            model.is_parallel = args.parallel
         model = AttackPGD(model,args)
-        model = torch.nn.DataParallel(model).cuda()
+        if args.parallel:
+            #model = torch.nn.DataParallel(model, device_ids=device)
+            #model.is_parallel = args.parallel
+            model = torch.nn.DataParallel(model).cuda()
 
-    # Original model is wrapped by our adversarial model!, DO NOT be 
-    # afraid of this wrapper, since it also supports to predict output logit without adding perturbations.
     # ****************************************
     # May have further use in the near future.
     # ****************************************
@@ -947,22 +961,20 @@ if __name__ == '__main__':
         #checkpoint = torch.load('/home/bwtseng/Downloads/mobilenet_sgd_68.848.pth.tar')
         model.load_state_dict(checkpoint['state_dict'])
 
-    # Follow the command to change the output layer here, 
-    # and it's designed for transfer learning.
+    # Follow the command to change the output layer here, and it is designed for transfer learning.
     # For instance model.module.fc = nn.Linear(num_ftrs, 2)
     # num_ftrs = model.module.fc.in_features 
-    # This line is very unstable, becuase model can be module or normal mode.
+    # Note that above line may cuase error in some cases, becuase model can be module or normal mode.
     model.arch = args.arch
     model.dataset = args.dataset
     input_shape = (1,) + input_shape[1:]
-    model.input_shape = input_shape
+    model.input_shape = input_shape 
     # ***************************************************
     # Define loss, optimiation, weight scheduler, and compress schedule here.
     # ***************************************************
     #criterion = nn.CrossEntropyLoss().to(device)
+    # This is just the cross entroy loss if smooth_eps is zero.
     criterion = utl.CrossEntropyLossMaybeSmooth(smooth_eps=args.smooth_eps).to(device)
-
-
     args.smooth = args.smooth_eps > 0 
     # ************************************
     # Setting weight decay scheduler (TBD)
@@ -985,12 +997,15 @@ if __name__ == '__main__':
             if optimizer is None: 
                 optimizer = optim.SGD(model.parameters(), lr=args.lr_pretrain, momentum=0.9, weight_decay=args.weight_decay)
                 print("Do build optimizer")
+            
             compress_scheduler = None
             if compress_scheduler is None:
                 if args.compress:
                     compress_scheduler = config.file_config(model, optimizer, args.compress, None, None)
                     print("Do load compress")
-
+                    if args.stage: 
+                        compress_scheduler.retrain_phase = True 
+            
             model.to(device)
             print("\nStart Training")
         else:
@@ -1000,21 +1015,25 @@ if __name__ == '__main__':
             # Note that all of this can be configured using the YAML file.
             if args.compress:
                 compress_scheduler = config.file_config(model, optimizer, args.compress, None, None)
-            compress_scheduler.mode = args.stage
+                if args.stage: 
+                    compress_scheduler.retrain_phase = True 
             model.to(device)
             print("\nStart Training")
         
+
         # ***************************************************
         # Print the initial sparsity of this model, and please check whether the pruning 
         # weight name is correct or not. 
         # ***************************************************
-        print("\nParameters Table: {}".format(str(t)))
+        
         t, total = summary.weights_sparsity_tbl_summary(model, return_total_sparsity=True)
+        print("\nParameters Table: {}".format(str(t)))
         print("\nSparsity: {}.".format(total))
+        #model, optimizer = amp.initialize(model, optimizer, opt_level="O1") 
         for epoch in range(args.epoch):
             print("\n")
             #print(compress_scheduler.policies[200])
-            if num_classes >= 5 :
+            if num_classes >= 10 :
                 nat_top1, nat_top5, nat_loss, adv_top1, adv_top5, adv_loss, tracker = trian_validate_with_scheduling(args, 
                                                                                                                     model, criterion, optimizer, 
                                                                                                                     compress_scheduler, device, num_classes, dataset_sizes, 
@@ -1029,46 +1048,48 @@ if __name__ == '__main__':
                                                                                                 epoch=epoch)         
                                                                         
     elif args.sensitivity:
-        try :
-            mdoel = ckpt.load_lean_checkpoint(model, arg.model_path, model_device=device)
-        except:
-            model.load_state_dict(torch.load(args.model_path))
-        else:
-            raise ValueError("Please input correct model path.")
-        
-        msglogger.info("Successfully load model from the checkpoint {%s}", args.model_path)
+        # If specifying the model path, users musr have their own local pre-defined model.
+        # Sometimes we use torch vision pretrined model instead, and its implementation is included in model_zoo directory.
+        if args.model_path:
+            #mdoel = ckpt.load_lean_checkpoint(model, args.model_path, model_device=device)
+            try :
+                mdoel = ckpt.load_lean_checkpoint(model, args.model_path, model_device=device)
+            except:
+                model.load_state_dict(torch.load(args.model_path))
+                #raise ValueError("Please input correct model path.")
+
+            msglogger.info("Successfully load model from the checkpoint {%s}", args.model_path)
         sensitivities = np.arange(*args.sensitivity_range)
         sensitivity_analysis(model, criterion, device, num_classes, args, sensitivities, logger=[tflogger, pylogger])
 
     else: 
         # Note: load_lean_checkpoint is implemented for testing phase only.
-        try :
-            epoch = 0
-            mdoel = ckpt.load_lean_checkpoint(model, args.model_path,
-                                              model_device=device)
-        except:
-            #raise ValueError("Please input correct model path !")
-            model.load_state_dict(torch.load(args.model_path))
-        else:
-            raise ValueError("Please input correct model path.")
+        if args.model_path:
+            try :
+                try: 
+                    epoch = 0
+                    mdoel = ckpt.load_lean_checkpoint(model, args.model_path,
+                                                model_device=device)
+                except:
+                    #raise ValueError("Please input correct model path !")
+                    model.load_state_dict(torch.load(args.model_path))
+            except:
+                raise ValueError("Can not load your checkpoint file.")
+            #else:
+            #    raise ValueError("Please input correct model path.")
 
+            msglogger.info("Successfully load model from the checkpoint {%s}", args.model_path)
 
-        utl.log_weights_sparsity(model, epoch, loggers=[tflogger, pylogger])
-        msglogger.info("Successfully load model from the checkpoint {%s}", args.model_path)
         if args.test:
+            epoch = 0
+            utl.log_weights_sparsity(model, epoch, loggers=[tflogger, pylogger])
             #t, total = summary.weights_sparsity_tbl_summary(model, return_total_sparsity=True)
             #print('Total sparsity: {:0.2f}\n'.format(total))
             #print("{}\n".format(str(t)))
-            #f = open('log.txt', 'wt')
-            #f.write("{}\n".format(str(t)))
-            #f.write('Total sparsity: {:0.2f}\n'.format(total))
-            if num_classes >= 5:
+            if num_classes >= 10:
                 nat_top1, nat_top5, nat_loss, adv_top1, adv_top5, adv_loss = test(model, criterion, device, num_classes, [tflogger, pylogger] ,args)
-                #f.write('Top1 accuracy {:0.2f}, Top 5 accuracy {:0.2f}\n'.format(top1, top5))
             else:
                nat_top1, nat_loss, adv_top1, adv_loss = test(model, criterion, device, num_classes, [tflogger, pylogger], args)
-                #f.write('Top1 accuracy {:0.2f}\n'.format(top1))         
-            #f.close()
 
 
         #model, criterion, device, num_classes, loggers, args=None, parameter_name=None
@@ -1084,16 +1105,6 @@ if __name__ == '__main__':
         # ***************************************************
         if args.post_qe_test:
             quantize_and_test_model(dataloaders['test'], model, criterion, args, device, num_classes, loggers=pylogger)
-
-
-
-
-
-
-
-
-
-
 
 
 

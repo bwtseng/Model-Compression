@@ -64,19 +64,30 @@
 
 version: 1
 pruners:
-  conv50_pruner:
-    class: 'AutomatedGradualPruner'
+  weight_pruner:
+    class: AutomatedGradualPruner
     initial_sparsity : 0.15
-    final_sparsity: 0.65
-    weights: [module.model.4.3.weight, module.model.5.3.weight, module.model.6.3.weight, module.model.7.3.weight,
-              module.model.8.3.weight, module.model.9.3.weight, module.model.10.3.weight, module.model.11.3.weight,
-              module.model.12.3.weight, module.model.13.3.weight]
+    final_sparsity: 0.77
+    weights: [
+              model.3.3.weight,
+              model.4.3.weight, 
+              model.5.3.weight, 
+              model.6.3.weight, 
+              model.7.3.weight,
+              model.8.3.weight, 
+              model.9.3.weight, 
+              model.10.3.weight, 
+              model.11.3.weight,
+              model.12.3.weight, 
+              model.13.3.weight,
+              fc.weight, 
+            ]
 
-  conv60_pruner:
-    class: 'AutomatedGradualPruner'
-    initial_sparsity : 0.15
-    final_sparsity: 0.65
-    weights: [module.fc.weight]
+  #conv60_pruner:
+  #  class: 'AutomatedGradualPruner'
+  #  initial_sparsity : 0.15
+  #  final_sparsity: 0.65
+  #  weights: [module.fc.weight]
 
 lr_schedulers:
   pruning_lr:
@@ -84,21 +95,32 @@ lr_schedulers:
     step_size: 30
     gamma: 0.10
 
+  retrain_lr:
+    class: StepLR
+    step_size: 30
+    gamma: 0.10
+
 policies:
   - pruner:
-      instance_name : 'conv50_pruner'
+      instance_name : weight_pruner
     starting_epoch: 0
-    ending_epoch: 40
-    frequency: 2
+    ending_epoch: 20
+    frequency: 1
 
-  - pruner:
-      instance_name : 'conv60_pruner'
-    starting_epoch: 0
-    ending_epoch: 40
-    frequency: 2
+  #- pruner:
+  #    instance_name : 'conv60_pruner'
+  #  starting_epoch: 0
+  #  ending_epoch: 40
+  #  frequency: 2
 
   - lr_scheduler:
       instance_name: pruning_lr
     starting_epoch: 0
-    ending_epoch: 120
+    ending_epoch: 20 
+    frequency: 1
+
+  - lr_scheduler:
+      instance_name: retrain_lr
+    starting_epoch: 20 
+    ending_epoch: 100 
     frequency: 1

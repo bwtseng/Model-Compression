@@ -1,0 +1,125 @@
+pruners:
+  admm_pruner:
+    class : ADMMPruner
+    rho : 0.001 
+    admm_epoch: 20
+    initial_lr: 0.001
+    sparsity_type : filter
+    masked_progressive : False
+    multi_rho: True
+    #pruning_ratio: [
+    #  module.basic_model.conv1.weight : 0.9375,
+    #  module.basic_model.layer1.0.conv1.weight : 0.9375, 
+    #  module.basic_model.layer1.0.conv2.weight : 0.9375, 
+    #  module.basic_model.layer1.1.conv1.weight : 0.9375,
+    #  module.basic_model.layer1.1.conv2.weight : 0.9375, 
+    #  module.basic_model.layer2.0.conv1.weight : 0.9375, 
+    #  module.basic_model.layer2.0.conv2.weight : 0.9375, 
+    #  module.basic_model.layer2.0.downsample.0.weight : 0.9375,
+    #  module.basic_model.layer2.1.conv1.weight : 0.9375,
+    #  module.basic_model.layer2.1.conv2.weight : 0.9375,
+    #  module.basic_model.layer3.0.conv1.weight : 0.9375,
+    #  module.basic_model.layer3.0.conv2.weight : 0.9375,
+    #  module.basic_model.layer3.0.downsample.0.weight : 0.9375,
+    #  module.basic_model.layer3.1.conv1.weight : 0.9375,
+    #  module.basic_model.layer3.1.conv2.weight : 0.9375,
+    #  module.basic_model.layer4.0.conv1.weight : 0.9375,
+    #  module.basic_model.layer4.0.conv2.weight : 0.9375, 
+    #  module.basic_model.layer4.0.downsample.0.weight : 0.9375,
+    #  module.basic_model.layer4.1.conv1.weight : 0.9375,
+    #  module.basic_model.layer4.1.conv2.weight : 0.9375,
+    #]
+    pruning_ratio: 
+      #basic_model.conv1.weight : 0.75
+      #basic_model.conv2.weight : 0.75
+      #basic_model.fc1.weight : 0.75
+      #basic_model.fc2.weight : 0.75
+      #basic_model.fc3.weight : 0.75
+      #features.0.weight : 0.75
+      #features.3.weight : 0.75
+      #features.7.weight : 0.75
+      #features.10.weight : 0.75
+      #features.14.weight : 0.75
+      #features.17.weight : 0.75
+      #features.21.weight : 0.75
+      #features.24.weight : 0.75
+      #features.28.weight : 0.75
+      #features.31.weight : 0.75
+      #classifier.0.weight : 0.75
+      #classifier.3.weight : 0.75
+      #classifier.6.weight : 0.75
+      conv1.weight : 0.75
+      layer1.0.conv1.weight: 0.75
+      layer1.0.conv2.weight: 0.75
+      layer1.1.conv1.weight: 0.75
+      layer1.1.conv2.weight: 0.75
+      layer2.0.conv1.weight: 0.75
+      layer2.0.conv2.weight: 0.75
+      layer2.0.downsample.0.weight: 0.75
+      layer2.1.conv1.weight: 0.75
+      layer2.1.conv2.weight: 0.75
+      layer3.0.conv1.weight: 0.75
+      layer3.0.conv2.weight: 0.75
+      layer3.0.downsample.0.weight: 0.75
+      layer3.1.conv1.weight: 0.75
+      layer3.1.conv2.weight: 0.75
+      layer4.0.conv1.0.weight: 0.75
+      layer4.0.conv2.weight: 0.75
+      layer4.0.downsample.0.weight: 0.75
+      layer4.1.conv1.weight: 0.75
+      layer4.1.conv2.weight: 0.75
+
+lr_schedulers:
+   pretrain:
+      class: MultiStepLR
+      gamma: 0.75
+      milestones: [80, 150]  # 80*391, 150*391
+
+   #admm_lr:
+   #   class: MultiStepLR
+   #   gamma: 0.75
+   #   milestones: [0, 31280, 58650]
+
+   retrain:  
+      # This epoch should be capatible with the start epoch of this policy.
+      class: MultiStepLR
+      gamma: 0.75 
+      milestones: [480, 550]  #epoch_milestones = [80*len(trainloader),150*len(trainloader)]
+
+# ADMM EPOCH的問題，我想是造成LR爆掉的因素之一? 誘惑是不購training的model根本送不瞭ADMM
+
+policies:
+  #- pruner:
+  #    instance_name : admm_pruner
+  #  starting_epoch : 200
+  #  ending_epoch : 400 
+  #  frequency: 1
+
+  #- lr_scheduler:
+  #    instance_name: pretrain
+  #  starting_epoch: 0
+  #  ending_epoch: 200
+  #  frequency: 1
+
+  #- lr_scheduler:
+  #    instance_name: admm_lr
+  #  starting_epoch: 0
+  #  ending_epoch: 200
+  #  frequency: 1
+
+  #- lr_scheduler:
+  #    instance_name: retrain
+  #  starting_epoch: 400
+  #  ending_epoch: 600
+  #  frequency: 1
+
+  - pruner:
+      instance_name : admm_pruner
+    starting_epoch : 0
+    ending_epoch : 2
+    frequency: 1
+  #- lr_scheduler:
+  #    instance_name: retrain
+  #  starting_epoch: 0
+  #  ending_epoch: 1
+  #  frequency: 1

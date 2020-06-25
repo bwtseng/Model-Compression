@@ -180,8 +180,8 @@ class SummaryGraph(object):
                 self.module_ops_map[module_name].append(new_op['name'])
 
                 # Finally we register the new op in the ops collection
-                print("new sgraph node - Scope name: {} ; Type: {} ; Display name {}".format(
-                    new_op['orig-name'], new_op['type'], new_op['name']))
+                #print("new sgraph node - Scope name: {} ; Type: {} ; Display name {}".format(
+                #    new_op['orig-name'], new_op['type'], new_op['name']))
                 self.ops[new_op['name']] = new_op
 
                 for input_ in node.inputs():

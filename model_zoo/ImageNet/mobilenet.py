@@ -63,7 +63,7 @@ model_urls = {
 
 class MobileNetV1(nn.Module):
     def __init__(self, channel_multiplier=1.0, min_channels=8):
-        super(Net, self).__init__()
+        super(MobileNetV1, self).__init__()
 
         if channel_multiplier <= 0:
             raise ValueError('channel_multiplier must be >= 0')
@@ -285,21 +285,37 @@ def mobilenet_v2(pretrained=False, progress=True, width_mult=1, **kwargs):
 def mobilenet_v1(pretrained, progress=True, channel_multiplier=1.0, device=None, **kwargs):
     model = MobileNetV1()
     if pretrained:
+        " Implementation of loading dict from url is failed, this may be another future works."
         #state_dict = load_state_dict_from_url(model_urls['mobilenet_v1'],
         #                                      progress=progress)
-        checkpoint = torch.load('/home/bwtseng/Downloads/mobilenet_sgd_rmsprop_69.526.pth')
-        if device == 'cpu':
+        
+        # *****
+        # We observe an interseting thing is that this checkpoint may lead to the ADMM pruner loss
+        # explode in the first few training epochs, but don't be afriad, it will drop down with increaseing
+        # the minibatch if your rho and multi rho scheme are set up well.
+        #checkpoint = torch.load('/home/bwtseng/Downloads/mobilenet_sgd_rmsprop_69.526.pth')
+        # ********
+        checkpoint = torch.load('/home/bwtseng/Downloads/mobilenet_sgd_68.848.pth.tar')
+        try :
+            state_dict = checkpoint['state_dict']
+            model.load_state_dict(state_dict)
+        except: 
+            #if device == 'cpu':
             # Remove the module appeared in the name of whole structure.
             from collections import OrderedDict
             new_state_dict = OrderedDict()
             print("Remove module string in loaded model !!!")
             for k, v in checkpoint['state_dict'].items():
-                name = k[7:] # remove `module.`
+                # Should moidfy this dict?
+                if "basic_model" in k :
+                    name = k[12:]
+                    print(name)
+                else:
+                    name = k[7:] # remove `module.`
                 new_state_dict[name] = v
             model.load_state_dict(new_state_dict)
-        else:
-            state_dict = checkpoint['state_dict']
-            model.load_state_dict(state_dict)
+        #else:
+        #    raise ValueError("Can not load your model state dict.")
     return model
 
 def create_mobilenet(arch, pretrained, width_mult=1.0, device=None):

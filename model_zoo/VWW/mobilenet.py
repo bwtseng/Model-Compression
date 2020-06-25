@@ -61,6 +61,7 @@ model_urls = {
     'mobilenet_v2': 'https://download.pytorch.org/models/mobilenet_v2-b0353104.pth',
 }
 
+
 class MobileNetV1(nn.Module):
     def __init__(self, channel_multiplier=1.0, min_channels=8):
         super(MobileNetV1, self).__init__()
@@ -102,8 +103,8 @@ class MobileNetV1(nn.Module):
             depthwise_conv(self.channels[5], self.channels[5], 1),
             nn.AvgPool2d(7),
         )
-        self.fc = nn.Linear(self.channels[5], 1000)
-
+        #self.fc = nn.Linear(self.channels[5], 1000)
+        self.fc = nn.Linear(self.channels[5], 2)
     def forward(self, x):
         x = self.model(x)
         x = x.view(-1, x.size(1))
@@ -281,10 +282,63 @@ def mobilenet_v2(pretrained=False, progress=True, **kwargs):
     return model
 
 
+class MobileNetV1_thinning(nn.Module):
+    def __init__(self):
+        super(MobileNetV1_thinning, self).__init__()
+
+        def conv_bn_relu(n_ifm, n_ofm, kernel_size, stride=1, padding=0, groups=1):
+            return [
+                nn.Conv2d(n_ifm, n_ofm, kernel_size, stride=stride, padding=padding, groups=groups, bias=False),
+                nn.BatchNorm2d(n_ofm),
+                nn.ReLU(inplace=True)
+            ]
+
+        def depthwise_conv(n_ifm, n_ofm, stride):
+            return nn.Sequential(
+                *conv_bn_relu(n_ifm, n_ifm, 3, stride=stride, padding=1, groups=n_ifm),
+                *conv_bn_relu(n_ifm, n_ofm, 1, stride=1)
+            )
+
+        channel_multiplier = 1
+        min_channels = 8
+        base_channels = [16, 40, 56, 128, 96, 184, 144, 160, 160, 136, 88, 256, 48]
+        self.channels = [max(floor(n * channel_multiplier), min_channels) for n in base_channels]
+
+        self.model = nn.Sequential(
+            nn.Sequential(
+            *conv_bn_relu(3, self.channels[0], 3, stride=2, padding=1)),
+            depthwise_conv(self.channels[0], self.channels[1], 1),
+            depthwise_conv(self.channels[1], self.channels[2], 2),
+            depthwise_conv(self.channels[2], self.channels[2], 1),
+            depthwise_conv(self.channels[2], self.channels[3], 2),
+            depthwise_conv(self.channels[3], self.channels[4], 1),
+            depthwise_conv(self.channels[4], self.channels[5], 2),
+            depthwise_conv(self.channels[5], self.channels[6], 1),
+            depthwise_conv(self.channels[6], self.channels[7], 1),
+            depthwise_conv(self.channels[7], self.channels[8], 1),
+            depthwise_conv(self.channels[8], self.channels[9], 1),
+            depthwise_conv(self.channels[9], self.channels[10], 1),
+            depthwise_conv(self.channels[10], self.channels[11], 2),
+            depthwise_conv(self.channels[11], self.channels[12], 1),
+            nn.AvgPool2d(7),
+        )
+        #self.fc = nn.Linear(self.channels[5], 1000)
+        self.fc = nn.Linear(self.channels[12], 2)
+    def forward(self, x):
+        x = self.model(x)
+        x = x.view(-1, x.size(1))
+        x = self.fc(x)
+        return x
+
+
 def mobilenet_v1(pretrained, progress=True, width_mult=1.0, device=None, **kwargs):
     model = MobileNetV1()
     if pretrained:
-        checkpoint = torch.load('/home/bwtseng/Downloads/mobilenet_sgd_rmsprop_69.526.pth')
+        #checkpoint = torch.load('/home/bwtseng/Downloads/mobilenet_sgd_rmsprop_69.526.pth')
+        checkpoint = torch.load('/home/bwtseng/Downloads/mobilenet_sgd_68.848.pth.tar')
+        checkpoint = torch.load('/home/bwtseng/Downloads/model_compression/no_pruning_model/vww_mobilenet_pure_best.pth.tar')
+        #checkpoint = torch.load('/home/bwtseng/Downloads/vww_v1/vww_model/model_best.pth.tar')
+        # This path should be specified by your local path.
         """
         if device == 'cpu':
             # Remove the module appeared in the name of whole structure.
@@ -304,10 +358,18 @@ def mobilenet_v1(pretrained, progress=True, width_mult=1.0, device=None, **kwarg
         new_state_dict = OrderedDict()
         print("Remove module string in loaded model !!!")
         for k, v in checkpoint['state_dict'].items():
-            name = k[7:] # remove `module.`
-            new_state_dict[name] = v
+            if 'module' in k:
+                name = k[7:] # remove `module.`
+                new_state_dict[name] = v
+            else:
+                new_state_dict[k] = v
         model.load_state_dict(new_state_dict)      
+    return model
 
+def mobilenet_thinning():
+    model = MobileNetV1_thinning()
+    checkpoint = torch.load('/home/swai01/visual_wake_words/modelmv1_025_056_bset.pth.tar')
+    model.load_state_dict(checkpoint['state_dict'])
     return model
 
 def create_mobilenet(arch, pretrained, width_mult=1.0, device=None):
@@ -321,8 +383,8 @@ def create_mobilenet(arch, pretrained, width_mult=1.0, device=None):
             num_ftrs = model.fc.in_features
             model.fc = nn.Linear(num_ftrs, 2)
         """
-        num_ftrs = model.fc.in_features
-        model.fc = nn.Linear(num_ftrs, 2)       
+        #num_ftrs = model.fc.in_features
+        #model.fc = nn.Linear(num_ftrs, 2)       
         # This if condition may change in the future, since it is really a naive case.
 
     elif arch =='mobilenet_v2':
@@ -338,6 +400,11 @@ def create_mobilenet(arch, pretrained, width_mult=1.0, device=None):
         """
         num_ftrs = model.classifier[-1].in_features
         model.classifier[-1] = nn.Linear(num_ftrs, 2)
+    
+    elif arch == 'mobilenet_thinning':
+        model = mobilenet_thinning()
+
     else:
         raise ValueError('Not support this kind of mobilenet model !!!')
     return model
+

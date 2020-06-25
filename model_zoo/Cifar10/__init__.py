@@ -7,3 +7,4 @@ from .inception import *
 from .mobilenet import * 
 from .resnet import * 
 from .shufflenet import *
+from .lenet import *

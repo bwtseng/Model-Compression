@@ -63,3 +63,17 @@ class SensitivityPruner(_ParameterPruner):
             threshold = param.stddev * sensitivity
             mask = distiller.threshold_mask(param.data, threshold)
             return mask
+
+'''
+def threshold_mask(param, threshold):
+    """Create a threshold mask for the provided parameter tensor using
+    magnitude thresholding.
+
+    Arguments:
+        param: a parameter tensor which should be pruned.
+        threshold: the pruning threshold.
+    Returns:
+        prune_mask: The pruning mask.
+    """
+    return torch.gt(torch.abs(param), threshold).type(param.type())
+'''

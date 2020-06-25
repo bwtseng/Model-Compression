@@ -42,7 +42,7 @@ from .ranked_structures_pruner import L1RankedStructureParameterPruner, \
                                       FMReconstructionChannelPruner
 from .baidu_rnn_pruner import BaiduRNNPruner
 from .greedy_filter_pruning import greedy_pruner
-
+from .admm_pruner import ADMMPruner
 del magnitude_pruner
 del automated_gradual_pruner
 del level_pruner

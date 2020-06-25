@@ -35,37 +35,59 @@
 # | 28 | Total sparsity:          | -                  |       4209088 |        2038208 |    0.00000 |    0.00000 |  0.00000 |  0.00000 |  0.00000 |   51.57602 | 0.00000 |  0.00000 |    0.00000 |
 # +----+--------------------------+--------------------+---------------+----------------+------------+------------+----------+----------+----------+------------+---------+----------+------------+
 
+# Output layer can not pruning in this case.
 version: 1
 pruners:
-  filter_pruner:
-    class: 'L1RankedStructureParameterPruner_AGP'
+  low_pruner:
+    class: L1RankedStructureParameterPruner_AGP
     initial_sparsity : 0.15
-    final_sparsity: 0.50
+    final_sparsity: 0.8
     group_type: Filters
-    weights: [module.model.4.3.weight, module.model.5.3.weight, module.model.6.3.weight, module.model.7.3.weight,
-              module.model.8.3.weight, module.model.9.3.weight, module.model.10.3.weight, module.model.11.3.weight, module.model.12.3.weight, module.model.13.3.weight]
+    weights: [
+              #model.1.0.weight,
+              #model.1.3.weight,
+              #model.2.0.weight, 
+              #model.2.3.weight,
+              #model.3.0.weight,  
+              model.3.3.weight,  
+              #model.4.0.weight, 
+              model.4.3.weight, 
+              #model.5.0.weight, 
+              model.5.3.weight, 
+              #model.6.0.weight, 
+              model.6.3.weight, 
+              #model.7.0.weight, 
+              model.7.3.weight,
+              #model.8.0.weight, 
+              model.8.3.weight, 
+              #model.9.0.weight, 
+              model.9.3.weight, 
+              #model.10.0.weight, 
+              model.10.3.weight, 
+              #model.11.0.weight, 
+              model.11.3.weight, 
+              #model.12.0.weight, 
+              model.12.3.weight, 
+              #model.13.0.weight, 
+              model.13.3.weight,
+            ]
 
-  fc_pruner:
-    class: 'AutomatedGradualPruner'
+  weight_pruner:
+    class: AutomatedGradualPruner
     initial_sparsity : 0.15
-    final_sparsity: 0.60
-    weights: [module.fc.weight]
-
-
-  fine_pruner:
-    class: 'AutomatedGradualPruner'
-    initial_sparsity : 0.15
-    final_sparsity: 0.50
-    weights: [module.model.10.3.weight, module.model.11.3.weight,
-              module.model.12.3.weight, module.model.13.3.weight]
+    final_sparsity: 0.75
+    weights: [
+              fc.weight, 
+            ]
 
 extensions:
   net_thinner:
-    class: 'FilterRemover'
+    class: FilterRemover
     thinning_func_str: remove_filters
-    arch: 'mobilenetv1'
-    dataset: 'VWW dataset'
+    arch: mobilenet_v1
+    dataset: imagenet
     input_shape: (1, 3, 224, 224)
+
 
 lr_schedulers:
   pruning_lr:
@@ -75,20 +97,20 @@ lr_schedulers:
 
 policies:
   - pruner:
-      instance_name : 'filter_pruner'
+      instance_name : filter_pruner
     starting_epoch: 0
-    ending_epoch: 5 #50
+    ending_epoch: 20 #50
     frequency: 2
 
   - pruner:
-      instance_name : 'fc_pruner'
+      instance_name : fc_pruner
     starting_epoch: 0
-    ending_epoch: 50
+    ending_epoch: 20
     frequency: 2
 
   - extension:
       instance_name: net_thinner
-    epochs: [6] #[61]
+    epochs: [6] 
 
 
   - lr_scheduler:

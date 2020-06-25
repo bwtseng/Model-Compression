@@ -23,7 +23,8 @@ from torch.nn import functional as f
 from random import uniform
 import distiller
 from .pruner import _ParameterPruner
-
+import norms 
+import thresholding
 
 __all__ = ["LpRankedStructureParameterPruner",
            "L1RankedStructureParameterPruner",
@@ -129,9 +130,12 @@ class LpRankedStructureParameterPruner(_RankedStructureParameterPruner):
             return
         if self.group_type in ('3D', 'Filters'):
             group_pruning_fn = partial(self.rank_and_prune_filters, noise=self.noise)
+        # Parameters "rows" indicate choose the norm from column index!
+
         elif self.group_type in ('Channels', 'Rows'):
             group_pruning_fn = partial(self.rank_and_prune_channels, noise=self.noise)
-        elif self.group_type == 'Blocks':
+        
+        elif self.group_type == 'Blocks':s
             group_pruning_fn = partial(self.rank_and_prune_blocks, block_shape=self.block_shape)
 
         binary_map = group_pruning_fn(fraction_to_prune, param, param_name,
@@ -145,7 +149,7 @@ class LpRankedStructureParameterPruner(_RankedStructureParameterPruner):
                                 model=None, binary_map=None, magnitude_fn=distiller.norms.l1_norm,
                                 noise=0.0, group_size=1, rounding_fn=math.floor):
         if binary_map is None:
-            bottomk_channels, channel_mags = distiller.norms.rank_channels(param, group_size, magnitude_fn,
+            bottomk_channels, channel_mags = norms.rank_channels(param, group_size, magnitude_fn,
                                                                            fraction_to_prune, rounding_fn, noise)
             if bottomk_channels is None:
                 # Empty list means that fraction_to_prune is too low to prune anything
@@ -154,7 +158,7 @@ class LpRankedStructureParameterPruner(_RankedStructureParameterPruner):
             binary_map = channel_mags.gt(threshold).type(param.data.type())
 
         if zeros_mask_dict is not None:
-            mask, _ = distiller.thresholding.expand_binary_map(param, 'Channels', binary_map)
+            mask, _ = thresholding.expand_binary_map(param, 'Channels', binary_map)
             zeros_mask_dict[param_name].mask = mask
             msglogger.info("%sRankedStructureParameterPruner - param: %s pruned=%.3f goal=%.3f (%d/%d)",
                            magnitude_fn, param_name,
@@ -166,9 +170,10 @@ class LpRankedStructureParameterPruner(_RankedStructureParameterPruner):
     def rank_and_prune_filters(fraction_to_prune, param, param_name, zeros_mask_dict,
                                model=None, binary_map=None, magnitude_fn=distiller.norms.l1_norm,
                                noise=0.0, group_size=1, rounding_fn=math.floor):
-        assert param.dim() == 4 or param.dim() == 3, "This pruning is only supported for 3D and 4D weights"
+        # We directly comment this line to allow prune 2D matrix acorrding thier row index ( btw distiller calls them col..)
+        # assert param.dim() == 4 or param.dim() == 3, "This pruning is only supported for 3D and 4D weights"
         if binary_map is None:
-            bottomk_filters, filter_mags = distiller.norms.rank_filters(param, group_size, magnitude_fn,
+            bottomk_filters, filter_mags = norms.rank_filters(param, group_size, magnitude_fn,
                                                                         fraction_to_prune, rounding_fn, noise)
             if bottomk_filters is None:
                 # Empty list means that fraction_to_prune is too low to prune anything
@@ -178,7 +183,8 @@ class LpRankedStructureParameterPruner(_RankedStructureParameterPruner):
             binary_map = filter_mags.gt(threshold).type(param.data.type())
 
         if zeros_mask_dict is not None:
-            mask, _ = distiller.thresholding.expand_binary_map(param, 'Filters', binary_map)
+            mask, _ = thresholding.expand_binary_map(param, 'Filters', binary_map)
+            #print(mask)
             zeros_mask_dict[param_name].mask = mask
             msglogger.info("%sRankedStructureParameterPruner - param: %s pruned=%.3f goal=%.3f",
                            magnitude_fn, param_name,
@@ -532,6 +538,8 @@ def _param_name_2_layer_name(param_name):
     return param_name[:-len('.weight')]
 
 
+
+
 class FMReconstructionChannelPruner(_RankedStructureParameterPruner):
     """Uses feature-map (channel) reconstruction to prune weights tensors.
 
@@ -644,6 +652,7 @@ class FMReconstructionChannelPruner(_RankedStructureParameterPruner):
                                 zeros_mask_dict=None, model=None, binary_map=None, 
                                 magnitude_fn=distiller.norms.l1_norm, group_size=1, rounding_fn=math.floor,
                                 noise=0):
+
         assert binary_map is None
         if binary_map is None:
             bottomk_channels, channel_mags = distiller.norms.rank_channels(param, group_size, magnitude_fn,
@@ -679,6 +688,7 @@ class FMReconstructionChannelPruner(_RankedStructureParameterPruner):
             # a smaller weights tensor.
             if op_type == 'fc':
                 X = X[:, binary_map]
+                
             elif conv.kernel_size == (1, 1):
                 X = X[:, binary_map, :]
                 X = X.transpose(1, 2)

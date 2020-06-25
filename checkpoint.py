@@ -41,6 +41,14 @@ def save_checkpoint(epoch, arch, model, optimizer=None, scheduler=None,
     fullpath_best = os.path.join(dir, filename_best)
 
     checkpoint = {'epoch': epoch, 'state_dict': model.state_dict(), 'arch': arch}
+    if scheduler.admm_prune:
+        if epoch < scheduler.pruner_info["ADMM_epoch"]:
+            # This is deterministic because that the learning rate shceduler is defined in the admm pruner.
+            # Thus, we are able to specity zero index in the scheduler without any concern.
+            checkpoint['admm'] = {}
+            checkpoint['admm']['ADMM_U'] = scheduler.policies[epoch][0].pruner.ADMM_U
+            checkpoint['admm']['ADMM_Z'] = scheduler.policies[epoch][0].pruner.ADMM_Z
+
     try:
         checkpoint['is_parallel'] = model.is_parallel
         checkpoint['dataset'] = model.dataset
@@ -52,6 +60,7 @@ def save_checkpoint(epoch, arch, model, optimizer=None, scheduler=None,
     if optimizer is not None:
         checkpoint['optimizer_state_dict'] = optimizer.state_dict()
         checkpoint['optimizer_type'] = type(optimizer)
+
     if scheduler is not None:
         checkpoint['compression_sched'] = scheduler.state_dict()
 

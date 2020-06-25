@@ -7,18 +7,18 @@ Currently, I focus on how to porting deep neural network to our local device wit
 ```
 .Model Compression
 ├── __init__.py
+├── comp_ratio_select.py
 ├── checkpoint.py
 ├── config_logger.py
 ├── sensitivity.py
-├── summary.py
+├── norms.py
+├── thresholding.py
 ├── summary_graph.py
-├── tbbackend.py
 ├── thinning.py
+├── collector.py
 ├── utility.py
 ├── collector.py
 ├── compression_scheduler.py
-├── netcollector.py
-├── data_sampler.py
 ├── performance_tracker.py
 ├── policy.py
 ├── ptq_lapq.py
@@ -38,6 +38,7 @@ Currently, I focus on how to porting deep neural network to our local device wit
 ├── pruning/
 |	├── __init__.py
 |	├── automated_gradual_pruner.py
+|	├── admm_pruner.py
 |	└── ...
 ├── modules/
 |	├── __init__.py
@@ -52,6 +53,11 @@ Currently, I focus on how to porting deep neural network to our local device wit
 |	└── ...
 ├── sensitivity_analysis/
 |	├── summary csv/txt file
+|	└── ...
+├── config 
+|	├── config_file.py
+|	├── config_logger.py
+|	├── tbbackend.py
 |	└── ...
 └── ...
 

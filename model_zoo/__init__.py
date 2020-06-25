@@ -36,6 +36,7 @@ cifar10_function_dict = {
     'mobilenet': cifar10_models.create_mobilenet_cifar10,
     'googlenet': cifar10_models.create_googlenet_cifar10,
     'shufflenet': create_shufflenet_cifar10,
+    'lenet': create_lenet_cifar10,
 }
 del cifar10_models
 
@@ -50,7 +51,7 @@ del mnist_models
 from . import VWW 
 from .VWW import *
 vww_function_dict = {
-    'mobilenet':VWW.create_mobilenet,
+    'mobilenet': VWW.create_mobilenet,
 }
 del VWW
 

@@ -1,12 +1,95 @@
+#admm:
+#  lr:  
+#  0.01
+# epochs: 
+#  200
+# save_model: 
+#  lenet_admm.pt
+# load_model: 
+#  lenet_pretrained.pt 
+# optimizer:
+#  sgd
+# lr_scheduler: 
+#  default
+# admm_epoch: 
+#  20
+# rho: 
+#  0.001
+# multi_rho: 
+#  True
+# masked_progressive: 
+#  False
+# verbose:
+#  False
+pruners:
+  admm_pruner:
+    class : ADMMPruner
+    rho : 0.001 
+    admm_epoch: 1
+    #total_epoch: 300
+    initial_lr: 0.01
+    sparsity_type : filter
+    masked_progressive : False
+    multi_rho: True
+    pruning_ratio: 
+      module.features.0.weight : 0.9375 
+      #conv1.weight: 0.9375
+      #conv2.weight: 0.9375
+      #conv3.weight: 0.9375
+      #conv4.weight: 0.9375
+      #conv5.weight: 0.9375
+      #conv6.weight: 0.9375
+      #conv7.weight: 0.9375
+      #conv8.weight: 0.9375
+      #conv9.weight: 0.9375
+      #conv10.weight: 0.9375
+      #conv11.weight: 0.9375
+      #conv12.weight: 0.9375
+      #conv13.weight : 0.9375
+    
+  fc_pruner:
+    class: AutomatedGradualPruner
+    initial_sparsity : 0.05
+    final_sparsity: 0.80
+    weights: [
+        module.classifier.0.weight,
+    ]
+
+
 lr_schedulers:
    pruning_lr:
      class: StepLR
      gamma: 0.1
      step_size: 35
-     
+
+   admm_pruner:
+      class: MultiStepLR
+      gamma: 0.01
+      milestones: [1,2] 
+
+
 policies:
+  - pruner:
+      instance_name : admm_pruner
+    starting_epoch : 0
+    ending_epoch : 3
+    frequency: 1
+
+  - pruner:
+      instance_name : fc_pruner
+    starting_epoch : 3
+    ending_epoch : 6
+    frequency: 1
+
+
   - lr_scheduler:
       instance_name: pruning_lr
+    starting_epoch: 6
+    ending_epoch: 10
+    frequency: 1
+
+  - lr_scheduler:
+      instance_name: admm_pruner
     starting_epoch: 0
-    ending_epoch: 105
+    ending_epoch: 3
     frequency: 1

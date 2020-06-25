@@ -33,7 +33,6 @@ class _ParameterPruner(object):
     def set_param_mask(self, param, param_name, zeros_mask_dict, meta):
         raise NotImplementedError
 
-
 def mask_tensor(tensor, mask):
     """Mask the provided tensor
 
