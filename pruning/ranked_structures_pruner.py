@@ -135,7 +135,7 @@ class LpRankedStructureParameterPruner(_RankedStructureParameterPruner):
         elif self.group_type in ('Channels', 'Rows'):
             group_pruning_fn = partial(self.rank_and_prune_channels, noise=self.noise)
         
-        elif self.group_type == 'Blocks':s
+        elif self.group_type == 'Blocks':
             group_pruning_fn = partial(self.rank_and_prune_blocks, block_shape=self.block_shape)
 
         binary_map = group_pruning_fn(fraction_to_prune, param, param_name,

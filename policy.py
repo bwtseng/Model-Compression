@@ -31,7 +31,7 @@ import distiller
 #import utility
 
 __all__ = ['PruningPolicy', 'RegularizationPolicy', 'QuantizationPolicy', 'LRPolicy', 'ScheduledTrainingPolicy',
-           'PolicyLoss', 'LossComponent', 'ADMMPolicy']
+           'PolicyLoss', 'LossComponent', 'ADMMPolicy', 'FMRPolicy']
 
 msglogger = logging.getLogger()
 PolicyLoss = namedtuple('PolicyLoss', ['overall_loss', 'loss_components'])
@@ -197,8 +197,10 @@ class PruningPolicy(ScheduledTrainingPolicy):
             self.sg = sg.SummaryGraph(model, dummy_input)
 
         for param_name, param in model.named_parameters():
+            
             if self.fold_bn:
                 param = self._fold_batchnorm(model, param_name, param, self.named_modules, self.sg)
+            
             if not is_initialized:
                 # Initialize the maskers
                 masker = zeros_mask_dict[param_name]
@@ -211,6 +213,7 @@ class PruningPolicy(ScheduledTrainingPolicy):
                 self.is_initialized = True
                 if not self.skip_first_minibatch:
                     self.pruner.set_param_mask(param, param_name, zeros_mask_dict, meta)
+            
             else:
                 self.pruner.set_param_mask(param, param_name, zeros_mask_dict, meta)
 
@@ -233,7 +236,7 @@ class PruningPolicy(ScheduledTrainingPolicy):
             if set_masks:
                 if self.fold_bn:
                     param = self._fold_batchnorm(model, param_name, param, self.named_modules, self.sg)
-                    # Build mask here, but apply mask in before optimizatioN? or whole of this code apply in theeir
+                    # Build mask here, but apply mask in before optimizatioN? or whole of this code apply (why?)
                 self.pruner.set_param_mask(param, param_name, zeros_mask_dict, meta)
             zeros_mask_dict[param_name].apply_mask(param)
 
@@ -593,4 +596,200 @@ class ADMMPolicy(ScheduledTrainingPolicy):
                 self.pruner.masking(model, zeros_mask_dict) 
                 #for group in kwargs['optimizer'].param_groups:
                 #    group['lr'] = 0.1
+
+
+class FMRPolicy(ScheduledTrainingPolicy):
+    def __init__(self, pruner, pruner_args, classes=None, layers=None):
+        super(FMRPolicy, self).__init__(classes, layers)
+        """
+        Arguments:
+            mask_on_forward_only: controls what we do after the weights are updated by the backward pass.
+            In issue #53 (https://github.com/NervanaSystems/distiller/issues/53) we explain why in some
+            cases masked weights will be updated to a non-zero value, even if their gradients are masked
+            (e.g. when using SGD with momentum). Therefore, to circumvent this weights-update performed by
+            the backward pass, we usually mask the weights again - right after the backward pass.  To
+            disable this masking set:
+                pruner_args['mask_on_forward_only'] = False
+
+            use_double_copies: when set to `True`, two sets of weights are used. In the forward-pass we use
+            masked weights to compute the loss, but in the backward-pass we update the unmasked weights (using
+            gradients computed from the masked-weights loss).
+
+            mini_batch_pruning_frequency: this controls pruning scheduling at the mini-batch granularity.  Every
+            mini_batch_pruning_frequency training steps (i.e. mini_batches) we perform pruning.  This provides more
+            fine-grained control over pruning than that provided by CompressionScheduler (epoch granularity).
+            When setting 'mini_batch_pruning_frequency' to a value other than zero, make sure to configure the policy's
+            schedule to once-every-epoch.
+
+            fold_batchnorm: when set to `True`, the weights of BatchNorm modules are folded into the the weights of
+            Conv-2D modules (if Conv2D->BN edges exist in the model graph).  Each weights filter is attenuated using
+            a different pair of (gamma, beta) coefficients, so `fold_batchnorm` is relevant for fine-grained and
+            filter-ranking pruning methods.  We attenuate using the running values of the mean and variance, as is
+            done in quantization.
+            This control argument is only supported for Conv-2D modules (i.e. other convolution operation variants and
+            Linear operations are not supported).
+         """
+         ### Pruner  aurgment, should be more clearly undertstand.
+        self.pruner = pruner
+        # Copy external policy configuration, if available
+        if pruner_args is None:
+            pruner_args = {}
+        self.levels = pruner_args.get('levels', None)
+        self.keep_mask = pruner_args.get('keep_mask', False)
+        self.mini_batch_pruning_frequency = pruner_args.get('mini_batch_pruning_frequency', 0)
+        self.mask_on_forward_only = pruner_args.get('mask_on_forward_only', False)
+        self.mask_gradients = pruner_args.get('mask_gradients', False)
+        if self.mask_gradients and not self.mask_on_forward_only:
+            raise ValueError("mask_gradients and (not mask_on_forward_only) are mutually exclusive")
+        self.backward_hook_handle = None   # The backward-callback handle
+        self.use_double_copies = pruner_args.get('use_double_copies', False)
+        self.discard_masks_at_minibatch_end = pruner_args.get('discard_masks_at_minibatch_end', False)
+        self.skip_first_minibatch = pruner_args.get('skip_first_minibatch', False)
+        self.fold_bn = pruner_args.get('fold_batchnorm', False)
+        # These are required for BN-folding.  We cache them to improve performance
+        self.named_modules = None
+        self.sg = None
+        # Initialize state
+        self.is_last_epoch = False
+        self.is_initialized = False
+
+    @staticmethod
+    def _fold_batchnorm(model, param_name, param, named_modules, sg):
+        def _get_all_parameters(param_module, bn_module):
+            w, b, gamma, beta = param_module.weight, param_module.bias, bn_module.weight, bn_module.bias
+            if not bn_module.affine:
+                gamma = 1.
+                beta = 0.
+            return w, b, gamma, beta
+
+        def get_bn_folded_weights(conv_module, bn_module):
+            """Compute the weights of `conv_module` after folding successor BN layer.
+
+            In inference, DL frameworks and graph-compilers fold the batch normalization into
+            the weights as defined by equations 20 and 21 of https://arxiv.org/pdf/1806.08342.pdf
+
+            :param conv_module: nn.Conv2d module
+            :param bn_module: nn.BatchNorm2d module which succeeds `conv_module`
+            :return: Folded weights
+            """
+            w, b, gamma, beta = _get_all_parameters(conv_module, bn_module)
+            with torch.no_grad():
+                sigma_running = torch.sqrt(bn_module.running_var + bn_module.eps)
+                w_corrected = w * (gamma / sigma_running).view(-1, 1, 1, 1)
+            return w_corrected
+
+        layer_name = utility.param_name_2_module_name(param_name)
+        #layer_name = param_name_2_module_name(param_name)
+        if not isinstance(named_modules[layer_name], nn.Conv2d):
+            return param
+
+        bn_layers = sg.successors_f(layer_name, ['BatchNormalization'])
+        if bn_layers:
+            assert len(bn_layers) == 1
+            bn_module = named_modules[bn_layers[0]]
+            conv_module = named_modules[layer_name]
+            param = get_bn_folded_weights(conv_module, bn_module)
+        return param
+
+    def on_epoch_begin(self, model, zeros_mask_dict, meta, **kwargs):
+        msglogger.debug("Pruner {} is about to prune".format(self.pruner.name))
+        self.is_last_epoch = meta['current_epoch'] == (meta['ending_epoch'] - 1)
+        if self.levels is not None:
+            self.pruner.levels = self.levels
+        print(meta['current_epoch'])
+        if meta['current_epoch'] == 0: 
+            print("Delegate the forward function here.")
+            #model, self.forward_fn, 
+            #  self.acceptance_criterion, self.hook_fn
+            forward_fn = kwargs['forward_fn']
+
+            self.pruner.collect_intermediate_featuremap_samples(model, forward_fn, 
+                                                                self.pruner.acceptance_criterion, self.pruner.hook_fn)
+            self.pruner.forward_fn = forward_fn
+
+        meta['model'] = model
+        is_initialized = self.is_initialized
+        """
+        There are several if conditions here, it may looks strange and confusing, but in our case, nearly all of them
+        are true, one can just focus on the set param mask function to make sure the pruning procedure will be executed correctly.
+        """
+
+        if self.fold_bn: # Always false
+            # Cache this information (required for BN-folding) to improve performance
+            self.named_modules = OrderedDict(model.named_modules())
+            dummy_input = torch.randn(model.input_shape)
+            self.sg = sg.SummaryGraph(model, dummy_input)
+
+        for param_name, param in model.named_parameters():
+            if self.fold_bn: # Alway false
+                param = self._fold_batchnorm(model, param_name, param, self.named_modules, self.sg)
+            
+            if not is_initialized:
+                # Initialize the maskers
+                masker = zeros_mask_dict[param_name]
+                masker.use_double_copies = self.use_double_copies # Always false 
+                masker.mask_on_forward_only = self.mask_on_forward_only # Always false
+
+                if self.mask_gradients:
+                    masker.backward_hook_handle = param.register_hook(masker.mask_gradient)
+
+                self.is_initialized = True
+                if not self.skip_first_minibatch: 
+                    self.pruner.set_param_mask(param, param_name, zeros_mask_dict, meta)
+                    #pass
+            else:
+                self.pruner.set_param_mask(param, param_name, zeros_mask_dict, meta)
+                #pass
+
+    def on_minibatch_begin(self, model, epoch, minibatch_id, minibatches_per_epoch,
+                           zeros_mask_dict, meta, optimizer=None):
+        
+        set_masks = False
+        global_mini_batch_id = epoch * minibatches_per_epoch + minibatch_id
+        
+        if ((minibatch_id > 0) and
+            (self.mini_batch_pruning_frequency != 0) and
+            (global_mini_batch_id % self.mini_batch_pruning_frequency == 0)):
+            # This is _not_ the first mini-batch of a new epoch (performed in on_epoch_begin)
+            # and a pruning step is scheduled
+            set_masks = True
+
+        if self.skip_first_minibatch and global_mini_batch_id == 1:
+            # Because we skipped the first mini-batch of the first epoch (global_mini_batch_id == 0)
+            set_masks = True
+
+        for param_name, param in model.named_parameters():
+            if set_masks:
+                if self.fold_bn: # Always false
+                    param = self._fold_batchnorm(model, param_name, param, self.named_modules, self.sg)
+                self.pruner.set_param_mask(param, param_name, zeros_mask_dict, meta)
+                #pass
+            zeros_mask_dict[param_name].apply_mask(param)
+                
+    def before_parameter_optimization(self, model, epoch, minibatch_id, minibatches_per_epoch,
+                                      zeros_mask_dict, meta, optimizer):
+
+        for param_name, param in model.named_parameters():
+            zeros_mask_dict[param_name].revert_weights(param, minibatch_id)
+
+    def on_minibatch_end(self, model, epoch, minibatch_id, minibatches_per_epoch, zeros_mask_dict, optimizer):
+        # Always Flase, we need to keep our masker after our weights updated by SGD.
+        if self.discard_masks_at_minibatch_end:
+            for param_name, param in model.named_parameters():
+                zeros_mask_dict[param_name].mask = None
+
+    def on_epoch_end(self, model, zeros_mask_dict, meta, **kwargs):
+        """
+        The current epoch has ended
+        """
+        if self.is_last_epoch:
+            for param_name, param in model.named_parameters():
+                masker = zeros_mask_dict[param_name]
+                if self.keep_mask:
+                    masker.use_double_copies = False
+                    masker.mask_on_forward_only = False
+                    masker.mask_tensor(param)
+                if masker.backward_hook_handle is not None:
+                    masker.backward_hook_handle.remove()
+                    masker.backward_hook_handle = None
 

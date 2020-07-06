@@ -471,7 +471,7 @@ def _validate(data_group, model, criterion, device, num_classes, loggers, epoch=
     add_noise_steps =  int(total_steps * 0.2)
     end_range = int(total_steps) - add_noise_steps
     start_step = random.randint(0, end_range)
-    start_step = 256
+    start_step = 60
     end_step = start_step + add_noise_steps
     # Turn into evaluation mode.
     model.eval()
@@ -482,16 +482,17 @@ def _validate(data_group, model, criterion, device, num_classes, loggers, epoch=
         for validation_step, data in enumerate(dataloaders[data_group]):
             inputs = data[0].to(device)
             labels = data[1].to(device)
+            
             if validation_step >= start_step and validation_step <= end_step and noise_factor:
                 #print(validation_step)
                 shape = inputs.shape
                 # If using imagenet dataset:
-                
                 mean = np.array([0.485, 0.456, 0.402])
                 std = np.array([0.229, 0.224, 0.225])
                 min_val = (np.array([0,0,0]) - mean) / std
                 max_val = (np.array([1,1,1]) - mean) / std
                 noise = noise_factor * torch.randn(shape).to(device)
+                
                 """
                 # for Plotting
                 count = 0
@@ -515,13 +516,13 @@ def _validate(data_group, model, criterion, device, num_classes, loggers, epoch=
                         return img
                     plt.imsave(os.path.join(msglogger.logdir, str(count)+'.png'), plot(temp_inputs))
                     count+=1
-                assert 1 == 2
+                assert 1 == 2  
                 """
+
                 inputs += noise
                 for i in range(3):
                     inputs[:, i, :, :] = torch.clamp(inputs[:, i, :, :], min_val[i], max_val[i])
-                
-                
+                                
             nat_output = model(inputs)
             
             # Early exist mode will incorporate in the near future.
@@ -632,59 +633,61 @@ def trian_validate_with_scheduling(args, net, criterion, optimizer, compress_sch
     # This line may raise the problems that the epoch doesn't exist any policy....
     #****
     
-    if compress_scheduler.prune_mechanism and compress_scheduler: 
-        if epoch == (compress_scheduler.pruner_info['max_epoch']):
-            # Reset optimizer and learning rate in retrain phase.
-            # NOTE: We should specify the true 
-            for index in range(len(compress_scheduler)):
-                policy_name = compress_scheduler.policies[epoch][index].__class__.__name__.split("Policy")[0]
-                if policy_name == "LR":
-                    compress_scheduler.policies[epoch][0].lr_scheduler.optimizer.param_groups[0]['lr'] = args.lr_retrain
-                    compress_scheduler.policies[epoch][0].lr_scheduler.base_lrs = [args.lr_retrain]
-                    compress_scheduler.policies[epoch][0].lr_scheduler.optimizer.param_groups[0]['momentum'] = 0.9
-                    compress_scheduler.policies[epoch][0].lr_scheduler.optimizer.param_groups[0]['initial_lr'] = args.lr_retrain
-                    for group in optimizer.param_groups:
-                        for p in group['params']:
-                            if 'momentum_buffer' in optimizer.state[p]:
-                                optimizer.state[p].pop('momentum_buffer', None)
-                    break 
-                
-             
-        if epoch == (compress_scheduler.pruner_info['min_epoch']):
-            # *****
-            # NOTE If not using ADMM pruner, do we need to reset lr scheduler in this loop?
-            # *****
-            # Reset learning rate and momentum buffer for next learning stage! 
-            policy_name = compress_scheduler.policies[epoch][0].__class__.__name__.split("Policy")[0]
+    if compress_scheduler: 
+        if compress_scheduler.prune_mechanism:
+            if epoch == (compress_scheduler.pruner_info['max_epoch']):
+                # Reset optimizer and learning rate in retrain phase.
+                # NOTE: We should specify the true 
+                for index in range(len(compress_scheduler.policies[epoch])):
+                    policy_name = compress_scheduler.policies[epoch][index].__class__.__name__.split("Policy")[0]
+                    if policy_name == "LR":
+                        compress_scheduler.policies[epoch][index].lr_scheduler.optimizer.param_groups[0]['lr'] = args.lr_retrain
+                        compress_scheduler.policies[epoch][index].lr_scheduler.base_lrs = [args.lr_retrain]
+                        compress_scheduler.policies[epoch][index].lr_scheduler.optimizer.param_groups[0]['momentum'] = 0.9
+                        compress_scheduler.policies[epoch][index].lr_scheduler.optimizer.param_groups[0]['initial_lr'] = args.lr_retrain
+                        for group in optimizer.param_groups:
+                            for p in group['params']:
+                                if 'momentum_buffer' in optimizer.state[p]:
+                                    optimizer.state[p].pop('momentum_buffer', None)
+                        break 
+        
+            if epoch == (compress_scheduler.pruner_info['min_epoch']):
+                # *****
+                # NOTE If not using ADMM pruner, do we need to reset lr scheduler in this loop?
+                # *****
+                # Reset learning rate and momentum buffer for pruning stage! 
+                policy_name = compress_scheduler.policies[epoch][0].__class__.__name__.split("Policy")[0]            
+                #if policy_name != "ADMM":
+                #    compress_scheduler.policies[epoch][0].lr_scheduler.optimizer.param_groups[0]['lr'] = args.lr_prune
+                #    compress_scheduler.policies[epoch][0].lr_scheduler.base_lrs = [args.lr_prune]
+                #    compress_scheduler.policies[epoch][0].lr_scheduler.optimizer.param_groups[0]['momentum'] = 0.9
+                #    compress_scheduler.policies[epoch][0].lr_scheduler.optimizer.param_groups[0]['initial_lr'] = args.lr_prune
+                for group in optimizer.param_groups:
+                    group['lr'] = args.lr_prune    
+                    group['initial_lr'] = args.lr_prune
+                    # for group in optimizer.param_groups:
+                    for p in group['params']:
+                        if 'momentum_buffer' in optimizer.state[p]:
+                            optimizer.state[p].pop('momentum_buffer', None)
+        
+            if epoch >= compress_scheduler.pruner_info['max_epoch']:
+                name  += "_retrain"
             
-            if policy_name != "ADMM":
-                compress_scheduler.policies[epoch][0].lr_scheduler.optimizer.param_groups[0]['lr'] = args.lr_prune
-                compress_scheduler.policies[epoch][0].lr_scheduler.base_lrs = [args.lr_prune]
-                compress_scheduler.policies[epoch][0].lr_scheduler.optimizer.param_groups[0]['momentum'] = 0.9
-                compress_scheduler.policies[epoch][0].lr_scheduler.optimizer.param_groups[0]['initial_lr'] = args.lr_prune
+            elif epoch < compress_scheduler.pruner_info['min_epoch']:
+                name += "_pretrain"
 
-            for group in optimizer.param_groups:
-                group['lr'] = args.lr_prune    
-                group['initial_lr'] = args.lr_prune
-                # for group in optimizer.param_groups:
-                for p in group['params']:
-                    if 'momentum_buffer' in optimizer.state[p]:
-                        optimizer.state[p].pop('momentum_buffer', None)
-        
-        if epoch >= compress_scheduler.pruner_info['max_epoch']:
-            name  += "_retrain"
-        
-        elif epoch < compress_scheduler.pruner_info['min_epoch']:
-            name += "_pretrain"
-
-        else:
-            name += "_prune" 
+            else:
+                name += "_prune" 
     else: 
         # Only proceed with pre-train or re-train phase model. 
         name = name + "_" + args.stage
     
     if compress_scheduler:
-            compress_scheduler.on_epoch_begin(epoch, optimizer)
+        dataset_name = 'val' if args.split_ratio != 0 else 'test'
+        #data_group, model, criterion, device, num_classes, loggers, epoch=-1, noise_factor=0)
+        forward_fn = partial(_validate, data_group=dataset_name, model=model, criterion=criterion, device=device, num_classes=num_classes, loggers=loggers,
+                             epoch=-1, noise_factor=0)
+        compress_scheduler.on_epoch_begin(epoch, optimizer, forward_fn=forward_fn)
 
     if num_classes >= 10:
         nat_top1, nat_top5, nat_loss, loss = light_train_with_distiller(net, criterion, optimizer, compress_scheduler, 
@@ -699,6 +702,7 @@ def trian_validate_with_scheduling(args, net, criterion, optimizer, compress_sch
                 nat_top1, nat_top5, nat_loss = _validate('val', net, criterion, device, num_classes, loggers, epoch=epoch)  
             else: 
                 nat_top1, nat_top5, nat_loss = _validate('test', net, criterion, device, num_classes, loggers, epoch=epoch)  
+        
         else:
             if args.split_ratio != 0:
                 nat_top1, nat_loss  = _validate('val', net, criterion, device, num_classes, loggers, epoch=epoch)   
@@ -1020,6 +1024,8 @@ if __name__ == '__main__':
                 compress_scheduler = config.file_config(model, optimizer, args.compress, None, None)
                 #if args.stage: 
                 #    compress_scheduler.retrain_phase = True 
+            #else:
+            #    lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.7)
             model.to(device)
             print("\nStart Training")
         
@@ -1105,8 +1111,26 @@ if __name__ == '__main__':
                     Matrix['Accuracy']= acc_list
                     final = pd.DataFrame(Matrix)
                     final.to_csv(os.path.join(log_dir, args.stage+'.csv'), index=False)
+                else:
+                    nat_top1, nat_top5, nat_loss = test(model, criterion, device, num_classes, [tflogger, pylogger] ,args)           
             else:
-               nat_top1, nat_loss = test(model, criterion, device, num_classes, [tflogger, pylogger], args)
+                if args.robustness:
+                    iter_list = np.arange(0.0, 3, 0.05)
+                    #iter_list = [0]
+                    acc_list = []
+                    #iter_list= [1]
+                    for fac in iter_list:
+                        args.robustness = fac 
+                        nat_top1, nat_loss = test(model, criterion, device, num_classes, [tflogger, pylogger] ,args)
+                        acc_list.append(nat_top1)
+
+                    Matrix = {}
+                    Matrix['Noise_factor'] = iter_list
+                    Matrix['Accuracy']= acc_list
+                    final = pd.DataFrame(Matrix)
+                    final.to_csv(os.path.join(log_dir, args.stage+'.csv'), index=False)
+                else:
+                    nat_top1, nat_loss = test(model, criterion, device, num_classes, [tflogger, pylogger], args)
 
 
         # model, criterion, device, num_classes, loggers, args=None, parameter_name=None, which indeicates the argument of the quantization function.
