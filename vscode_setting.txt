@@ -1,0 +1,265 @@
+ "editor.tokenColorCustomizations": {
+
+​    "[Monokai Pro (Filter Spectrum)]": {
+
+​     "textMateRules": [
+
+​     {
+
+​      "name": "Class name",
+
+​      "scope": "entity.name.type, entity.name.class, entity.name.namespace, entity.name.scope-resolution",
+
+​      "settings": {
+
+​      "fontStyle": "underline",
+
+​      "foreground": "#A6E22E"
+
+​      }
+
+​     },
+
+​     {
+
+​      "name": "Inherited class",
+
+​      "scope": "entity.other.inherited-class",
+
+​      "settings": {
+
+​       "fontStyle": "italic underline",
+
+​       "foreground": "#A6E22E"
+
+​      }
+
+​     },
+
+​     {
+
+​      "name": "Function argument",
+
+​      "scope": "variable.parameter, variable.parameter.function.language.special.self.python",
+
+​      "settings": {
+
+​       "fontStyle": "italic",
+
+​       "foreground": "#FD971F"
+
+​      }
+
+​     },
+
+​     {
+
+​      "name": "this.self",
+
+​      "scope": "variable.language",
+
+​      "settings": {
+
+​       "foreground": "#FD971F"
+
+​      }
+
+​     },
+
+​     {
+
+​      "name": "Library function",
+
+​      "scope": "support.function",
+
+​      "settings": {
+
+​       "fontStyle": "",
+
+​       "foreground": "#5AD4E6"
+
+​      }
+
+​     },
+
+​     {
+
+​      "name": "Function name",
+
+​      "scope": "entity.name.function",
+
+​      "settings": {
+
+​       "fontStyle": "",
+
+​       "foreground": "#A6E22E"
+
+​      }
+
+​     },
+
+​     *// Bo-Wei Tseng add the following setting for mimic sublime's syntax highlight.*
+
+​     {
+
+​      "name": "For the long comment symbols",
+
+​      "scope": "punctuation.definition.string.end.python, punctuation.definition.string.begin.python",
+
+​      "settings": {
+
+​       "fontStyle": "",
+
+​       "foreground": "#FCE566"
+
+​      }    
+
+​     },
+
+​     {
+
+​      "name": "For the list object []", 
+
+​      "scope": "punctuation.definition.list.begin.python, punctuation.definition.list.end.python",
+
+​      "settings": {
+
+​       "foreground": "#F7F1FF",
+
+​       "fontStyle": ""
+
+​      }
+
+​     },
+
+​     {
+
+​      "name": "For the tuple object ()",
+
+​      "scope": "punctuation.definition.arguments.begin.python, punctuation.definition.arguments.end.python",
+
+​      "settings": {
+
+​       "foreground": "#F7F1FF",
+
+​       "fontStyle": ""
+
+​      }
+
+​     },
+
+​     {
+
+​      "name": "For the : symbol",
+
+​      "scope": "punctuation.section.function.begin.python",
+
+​      "settings": {
+
+​       "foreground": "#F7F1FF",
+
+​       "fontStyle": ""
+
+​      }
+
+​     },
+
+​     {
+
+​      "name": "For the Decorator",
+
+​      "scope": "punctuation.definition.decorator.python",
+
+​      "settings": {
+
+​       "foreground": "#FC618D",
+
+​       "fontStyle": ""
+
+​      }
+
+​     },
+
+​     *// For the following function sequence:*
+
+​     {
+
+​      "name": "For the function followed by the imported modules", 
+
+​      "scope": "meta.function-call.generic.python",
+
+​      "settings": {
+
+​       "foreground": "#5AD4E6",
+
+​       "fontStyle": ""
+
+​      }
+
+​     }, 
+
+​     */**
+
+​     *// For the built-in function:*
+
+​     *{*
+
+​      *"name": "For the built-in function",*
+
+​      *"scope": "support.function.builtin.python",*
+
+​      *"settings": {*
+
+​       *"foreground": "#5AD4E6",*
+
+​       *"fontStyle": ""*
+
+​      *}*
+
+​     *},*
+
+​     **/*
+
+
+
+​     */**
+
+​     *// For the relative import symbol .. and .* 
+
+​     *{*
+
+​      *"name": "For the import relative imported symbol",* 
+
+​      *"scope": "punctuation.separator.period.python",*
+
+​      *"settings": {*
+
+​       *"foreground": "#FC618D",*
+
+​       *"fontStyle": ""*
+
+​      *}*
+
+​     *}*
+
+​     **/*
+
+​     {
+
+​      "name": "For some punctuations",
+
+​      "scope": "punctuation.separator.period.python, punctuation.separator.element.python, punctuation.separator.arguments.python",
+
+​      "settings": {
+
+​       "foreground": "#F7F1FF",
+
+​       "fontStyle": ""
+
+​      }
+
+​     },
+
+​    ]
+
+​    }
